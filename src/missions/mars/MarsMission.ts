@@ -281,6 +281,7 @@ export class MarsMission implements Mission {
       const poi = this.pois.get(this.targetId!)!;
       const prevView = st.view;
       st.setView('chase');
+      this.hud!.classList.remove('fp'); // no mast-camera frame over the cutscene
       // camera in front of the rover, off to one side, so the arm works toward the viewer
       const rock = st.specimens.get(poi.id)!.position.clone();
       const toRock = Math.atan2(rock.x - st.roverPos.x, rock.z - st.roverPos.z);
@@ -298,6 +299,7 @@ export class MarsMission implements Mission {
       if (this.disposed) return;
       st.setOrbit(null);
       st.setView(prevView);
+      this.hud!.classList.toggle('fp', prevView === 'fp');
       this.hud!.classList.remove('cine');
       this.hideProgress();
       this.targetId = null;

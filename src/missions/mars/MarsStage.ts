@@ -1273,6 +1273,9 @@ export class MarsStage implements Stage {
 
   dispose() {
     this.composer.dispose();
+    // A rock may be riding on the arm if the mission is restarted mid pick-up: take it off the shared model.
+    for (const s of this.specimens.values()) s.removeFromParent();
+    this.specimens.clear();
     this.arm?.restore();
     if (this.head) { this.head.quaternion.copy(this.headBase); this.head.visible = true; }
     // restore the shared NASA model (merge + wheel split are undone so replays start clean)

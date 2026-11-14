@@ -1,0 +1,37 @@
+// Restart the Mars mission while the arm is holding a rock; the second run must start clean.
+import { chromium } from 'playwright-core';
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true, args: ['--use-angle=d3d11'] });
+const pc = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+const errors = [];
+pc.on('pageerror', (e) => errors.push(e.message));
+pc.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+await pc.goto('http://localhost:5173');
+await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
+await pc.click('.begin'); await pc.waitForTimeout(800);
+await pc.click('.cod-item[data-a="start"]'); await pc.waitForTimeout(400);
+await pc.click('.choice[data-m="device"]'); await pc.waitForSelector('.ms'); await pc.waitForTimeout(500);
+await pc.click('.ms-card[data-id="mars"]'); await pc.waitForSelector('.briefing', { timeout: 20000 }); await pc.waitForTimeout(300);
+await pc.keyboard.press('Enter');
+await pc.waitForFunction(() => window.orion.mission?.phase === 'explore', null, { timeout: 60000 });
+const state = () => pc.evaluate(() => {
+  const st = window.orion.mission.stage, a = st.arm;
+  return { turretChildren: a.turret.children.length, wheels: st.wheels.length, specimens: [...st.specimens.keys()].join(','), deploy: a.deploy, turretQuat: a.turret.quaternion.toArray().map((v) => +v.toFixed(3)).join(',') };
+});
+const first = await state();
+console.log('run 1 start :', JSON.stringify(first));
+await pc.evaluate(() => { const m = window.orion.mission, st = m.stage, p = m.pois.get('s1').pos; st.placeRover({ x: p.x + 2.7, y: 0, z: p.z + 3.6 }, Math.atan2(-0.6, -0.8)); });
+await pc.waitForTimeout(500);
+await pc.keyboard.press('KeyE');
+await pc.waitForFunction(() => { const a = window.orion.mission.stage.arm; return a.spin > 15 && a.reach < 0.6; }, null, { timeout: 30000, polling: 30 });
+console.log('mid pick-up :', JSON.stringify(await state()));
+const old = await pc.evaluate(() => { window.__m1 = window.orion.mission; window.orion.mission.abort({ to: 'restart' }); return true; });
+await pc.waitForFunction(() => window.orion.mission && window.orion.mission !== window.__m1, null, { timeout: 20000 });
+await pc.waitForSelector('.briefing', { timeout: 20000 }); await pc.waitForTimeout(300);
+await pc.keyboard.press('Enter');
+await pc.waitForFunction(() => window.orion.mission?.phase === 'explore', null, { timeout: 60000 });
+const second = await state();
+console.log('run 2 start :', JSON.stringify(second));
+const clean = second.turretChildren === first.turretChildren && second.wheels === 6 && second.turretQuat === first.turretQuat && second.specimens === first.specimens;
+console.log(clean ? 'second run starts clean ✔' : 'second run is DIRTY ✘');
+console.log(errors.length ? [...new Set(errors)].join('\n') : 'no console errors');
+await browser.close();
