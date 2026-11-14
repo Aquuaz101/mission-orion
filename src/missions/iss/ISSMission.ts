@@ -292,10 +292,27 @@ export class ISSMission implements Mission {
   /** Play a third-person cutscene (letterboxed, titled) while the action runs underneath. */
   private cut(title: string, shots: Parameters<ISSStage['cine']>[0]) {
     const hud = this.hud!;
-    $(hud, '.cine-title').textContent = title;
-    hud.classList.add('cine');
+    const dip = $(hud, '.cine-dip');
+    // lead-in (~1 s): the helmet feed flickers and dips, the cut happens in the dark, letterbox slides in, a held beat
+    hud.classList.add('cine-pre');
     this.app.sfx.whoosh();
-    return this.stage!.cine(shots).then(() => { hud.classList.remove('cine'); });
+    return this.sleep(450).then(() => {
+      $(hud, '.cine-title').textContent = title;
+      hud.classList.remove('cine-pre');
+      hud.classList.add('cine');
+      dip.classList.add('up');
+      return this.stage!.cine(shots, {
+        hold: 0.45,
+        // lead-out (~0.9 s): dip to black, back to the helmet, fade up
+        beforeExit: async () => { dip.classList.remove('up'); dip.classList.add('down'); await this.sleep(380); },
+      });
+    }).then(async () => {
+      hud.classList.remove('cine');
+      await this.sleep(60);
+      dip.classList.remove('down');
+      dip.classList.add('up');
+      setTimeout(() => dip.classList.remove('up'), 700);
+    });
   }
 
   /** In the foot restraint the astronaut leans toward the work: shift the head toward a point on the battery face. */
@@ -484,7 +501,7 @@ export class ISSMission implements Mission {
     await st.move([st.at(0.4, -0.66, 0.6)], [st.at(0.4, -1.6, 0.1)], 0.8);
     const strike = new THREE.Vector3(-3, 6, -32);
     await this.cut('Impact · solar array', [
-      { dur: 2.2, fov: 38, cam: (k) => st.head.addScaledVector(st.facing, 0.42).addScaledVector(st.sideways, 0.3 - 0.08 * k).addScaledVector(new THREE.Vector3(0, 1, 0), 0.08), look: () => st.head },
+      { dur: 2.6, fov: 34, live: true, cam: (k) => st.head.addScaledVector(st.facing, 0.42).addScaledVector(st.sideways, 0.3 - 0.08 * k).addScaledVector(new THREE.Vector3(0, 1, 0), 0.08), look: () => st.head },
       { dur: 2.8, slow: 0.35, fov: 50, at: () => { st.burst(strike, 120, 5); st.kick(0.5, 0.25); sfx.impact(1); }, cam: (k) => strike.clone().add(new THREE.Vector3(5 - 1.2 * k, 2.2, 7 - 1.5 * k)), look: () => strike },
     ]);
     this.alive();
@@ -712,6 +729,7 @@ export class ISSMission implements Mission {
         <div class="progress-pill mono"><i></i><span></span></div>
         <div class="ih-cross"></div>
         <div class="cine-title mono"></div>
+        <div class="cine-dip"></div>
         <div class="cine-skip mono">${device ? '<b class="kbd">Space</b> skip' : ''}</div>
         ${device ? `<footer class="ih-keys mono"><span><b class="kbd">1</b><b class="kbd">2</b><b class="kbd">3</b> decide</span><span><b class="kbd">Mouse</b> look</span><span><b class="kbd">Tab</b> skip line</span><span><b class="kbd">Esc</b> pause</span></footer>` : ''}
       </section>`);

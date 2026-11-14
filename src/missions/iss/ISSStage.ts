@@ -9,6 +9,7 @@ import type { Stage } from '../../core/Engine';
 import type { Assets } from '../../core/Assets';
 import type { Quality } from '../../app/App';
 import { makeMaterials, handrail, batteryOru, pistolGripTool, type Mats, type Oru } from './parts';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { emuArm, emuArmModel, suitMaterials, setGrip, type EmuHand } from './hands';
 import { earthMaterial, atmosphereMaterial, RaysShader, VisorShader, visorDirt, glowTex, R_EARTH, ALT } from './issfx';
 
@@ -58,7 +59,11 @@ class HandCtl {
   /** World point this hand holds (anchor mode), for the third-person astronaut to mirror. */
   target(): Vec | null { return this.mode === 'anchor' && this.getter ? this.getter() : null; }
   private snapshot() { this.from.p.copy(this.h.root.position); this.from.q.copy(this.h.root.quaternion); this.from.g = this.h.grip; this.t = 0; }
-  pose(p: [number, number, number], r: [number, number, number], g: number, dur = 0.5) {
+  /** True while an idle gesture owns this hand; any scripted pose/anchor/rest takes over immediately. */
+  idling = false;
+  get settled() { return this.t >= 1; }
+  pose(p: [number, number, number], r: [number, number, number], g: number, dur = 0.5, idle = false) {
+    this.idling = idle;
     this.snapshot();
     this.mode = 'pose';
     this.getter = null;
@@ -70,6 +75,7 @@ class HandCtl {
   }
   rest(dur = 0.6) { return this.pose([0.25 * this.side, -0.4, -0.5], [0.3, 0.22 * this.side, 0.35 * this.side], 0.3, dur); }
   anchor(get: Getter, grip = 0.9, dur = 0.45, contact: 'wrap' | 'tip' = 'wrap') {
+    this.idling = false;
     this.snapshot();
     this.logged = false;
     this.gripLocal = contact === 'tip' ? HandCtl.TIP_LOCAL : HandCtl.GRIP_LOCAL;
@@ -120,10 +126,25 @@ class HandCtl {
     } else {
       root.position.lerpVectors(this.from.p, this.to.p, e);
       root.quaternion.slerpQuaternions(this.from.q, this.to.q, e);
+      // breathing sway: the arms rise and settle with each breath, never quite still
+      const bt = performance.now() / 1000;
+      root.position.y += Math.sin(bt * 1.6 + this.side) * 0.006;
+      root.position.x += Math.sin(bt * 0.45 + this.side * 2) * 0.004;
       setGrip(this.h, THREE.MathUtils.lerp(this.from.g, this.to.g, e));
     }
     if (this.t >= 1 && this.onReached) { const r = this.onReached; this.onReached = null; r(); }
   }
+}
+
+/** Fine micro-scratch / smudge roughness map for the gold visor. */
+function visorScratches() {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d')!;
+  g.fillStyle = 'rgb(18,18,18)'; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 220; i++) { const x = Math.random() * 512, y = Math.random() * 512, a = Math.random() * Math.PI, l = 8 + Math.random() * 60; g.strokeStyle = `rgba(120,120,120,${0.15 + Math.random() * 0.35})`; g.lineWidth = Math.random() < 0.8 ? 0.6 : 1.4; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+  for (let i = 0; i < 14; i++) { const r = 20 + Math.random() * 70, x = Math.random() * 512, y = Math.random() * 512; const grd = g.createRadialGradient(x, y, 0, x, y, r); grd.addColorStop(0, 'rgba(90,90,90,0.35)'); grd.addColorStop(1, 'rgba(90,90,90,0)'); g.fillStyle = grd; g.fillRect(x - r, y - r, r * 2, r * 2); }
+  const t = new THREE.CanvasTexture(c);
+  return t;
 }
 
 /** Rotation taking the pair (a1 primary, b1 secondary) onto (a2, b2): a1 → a2 exactly, b1 → b2 as closely as possible. */
@@ -226,6 +247,17 @@ export class ISSStage implements Stage {
   private suit: THREE.Object3D | null = null;
   private suitJ: Record<string, THREE.Object3D> = {};
   private suitRest = new Map<THREE.Object3D, THREE.Quaternion>();
+  private suitPrev = new Map<THREE.Object3D, THREE.Quaternion>();
+  private suitDt = 0.016;
+  // live visor reflections for the close-up: a cube camera at the helmet, the real station + debris + Sun + an Earth proxy
+  private visorRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+  private visorCam = new THREE.CubeCamera(0.05, 3000, this.visorRT);
+  private visorLive = false;
+  private visorTick = 0;
+  readonly visorMat = new THREE.MeshPhysicalMaterial({ color: 0xe6ad45, metalness: 1, roughness: 0.035, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.6 });
+  private earthProxy: THREE.Mesh;
+  private sunProxy: THREE.Mesh;
+  private idleT = 7;
   private cineLight: THREE.PointLight;
   /** Playback rate for slow motion inside cutscenes. */
   timeScale = 1;
@@ -362,16 +394,26 @@ export class ISSStage implements Stage {
     const suitGltf = assets.models.emuSuit;
     if (suitGltf) {
       const sm = suitMaterials();
-      const suit = suitGltf.scene.clone(true);
+      const suit = cloneSkinned(suitGltf.scene);
       suit.traverse((o) => {
         const mesh = o as THREE.Mesh;
-        if (mesh.isMesh) { mesh.material = sm[(mesh.material as THREE.Material).name] ?? sm.suit; mesh.castShadow = mesh.receiveShadow = true; }
-        if (/^j[A-Z]/.test(o.name)) { this.suitJ[o.name] = o; this.suitRest.set(o, o.quaternion.clone()); }
+        if (mesh.isMesh) {
+          const name = (mesh.material as THREE.Material).name;
+          mesh.material = name === 'visor' ? this.visorMat : sm[name] ?? sm.suit;
+          mesh.castShadow = mesh.receiveShadow = true;
+          mesh.frustumCulled = false;
+        }
+        if (/^j[A-Z]/.test(o.name)) { this.suitJ[o.name] = o; this.suitRest.set(o, o.quaternion.clone()); this.suitPrev.set(o, o.quaternion.clone()); }
       });
       suit.visible = false;
       this.scene.add(suit);
       this.suit = suit;
     }
+    this.visorMat.roughnessMap = visorScratches();
+    this.earthProxy = new THREE.Mesh(new THREE.SphereGeometry(2600, 48, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.32, 0.5, 1.0) }));
+    this.sunProxy = new THREE.Mesh(new THREE.SphereGeometry(40, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(40, 36, 30) }));
+    for (const o of [this.earthProxy, this.sunProxy]) { o.layers.set(1); this.scene.add(o); }
+    this.visorCam.layers.enable(1);
     this.cineLight = new THREE.PointLight(0xdfe8ff, 0, 14, 1.6);
     this.scene.add(this.cineLight);
     for (const sx of [-0.14, 0.14]) {
@@ -612,7 +654,7 @@ export class ISSStage implements Stage {
    * keeps running underneath, and the suit mirrors it (body pose, hands on whatever the gloves hold).
    * Resolves when the shots end or the player skips; the helmet view comes back.
    */
-  async cine(shots: { dur: number; cam: (k: number) => Vec; look: (k: number) => Vec; fov?: number; slow?: number; at?: () => void }[]) {
+  async cine(shots: { dur: number; cam: (k: number) => Vec; look: (k: number) => Vec; fov?: number; slow?: number; at?: () => void; live?: boolean }[], o: { hold?: number; beforeExit?: () => Promise<void> } = {}) {
     if (!this.suit) return;
     const state = (this.cineState = { skip: false });
     this.L.h.root.visible = this.R.h.root.visible = false;
@@ -628,6 +670,8 @@ export class ISSStage implements Stage {
       this.camera.updateProjectionMatrix();
       this.timeScale = sh.slow ?? 1;
       sh.at?.();
+      this.visorLive = !!sh.live;
+      if (sh === shots[0] && o.hold) { this.ext!.pos.copy(sh.cam(0)); this.ext!.look.copy(sh.look(0)); await this.animate(o.hold, () => {}); }
       await this.animate(sh.dur * (sh.slow ?? 1), (k) => {
         if (state.skip) return;
         const e = k * k * (3 - 2 * k);
@@ -636,6 +680,8 @@ export class ISSStage implements Stage {
       });
     }
     this.timeScale = 1;
+    this.visorLive = false;
+    if (o.beforeExit) await o.beforeExit();
     this.ext = null;
     this.cineState = null;
     this.suit.visible = false;
@@ -648,6 +694,39 @@ export class ISSStage implements Stage {
     this.dust.visible = true;
   }
   skipCine() { if (this.cineState) this.cineState.skip = true; }
+
+  /**
+   * First-person idles: when both hands are free and settled, every 6-14 s one natural gesture plays: turning a glove
+   * to check the palm, reading the cuff checklist, flexing the fingers, adjusting the opposite wrist ring.
+   * Any scripted grab or pose cancels it on the spot.
+   */
+  private updateIdle(dt: number) {
+    const L = this.L, R = this.R;
+    const free = L.mode === 'pose' && R.mode === 'pose' && !this.ext && !this.cineState;
+    if (!free) { this.idleT = Math.max(this.idleT, 4); return; }
+    if (L.idling || R.idling) return;
+    if (!L.settled || !R.settled) return;
+    this.idleT -= dt;
+    if (this.idleT > 0) return;
+    this.idleT = 6 + Math.random() * 8;
+    const pick = Math.floor(Math.random() * 4);
+    const back = (h: HandCtl, delay: number) => setTimeout(() => { if (h.idling) { h.idling = false; void h.rest(0.9); } }, delay);
+    if (pick === 0) {          // check the right palm: raise it, turn it toward the visor, look it over
+      void R.pose([0.1, -0.17, -0.55], [-1.25, 0.25, 2.6], 0.15, 0.9, true).then(() => { if (R.idling) void R.pose([0.08, -0.16, -0.54], [-1.35, 0.1, 2.9], 0.35, 1.1, true); });
+      back(R, 3200);
+    } else if (pick === 1) {   // read the cuff checklist on the left forearm
+      void L.pose([-0.12, -0.21, -0.46], [0.85, -0.55, -0.4], 0.35, 1.0, true);
+      back(L, 3400);
+    } else if (pick === 2) {   // flex the fingers (pressurised gloves fight you)
+      void R.pose([0.19, -0.27, -0.46], [0.2, 0.15, 0.3], 0.95, 0.6, true).then(() => { if (R.idling) void R.pose([0.2, -0.28, -0.47], [0.25, 0.2, 0.32], 0.1, 0.7, true); });
+      void L.pose([-0.2, -0.27, -0.46], [0.25, -0.18, -0.3], 0.9, 0.7, true).then(() => { if (L.idling) void L.pose([-0.21, -0.28, -0.47], [0.25, -0.2, -0.32], 0.15, 0.8, true); });
+      back(R, 2200); back(L, 2400);
+    } else {                   // adjust the left wrist ring with the right glove
+      void L.pose([-0.06, -0.24, -0.45], [0.5, -0.4, -0.6], 0.3, 0.9, true);
+      void R.pose([0.03, -0.21, -0.44], [0.4, 0.9, 0.9], 0.8, 1.0, true);
+      back(L, 2900); back(R, 2700);
+    }
+  }
   /** Helmet (eye) position and the astronaut's facing, for framing shots. */
   get head() { return this.body.position.clone(); }
   get facing() { return new THREE.Vector3(0, 0, -1).applyQuaternion(this.body.quaternion); }
@@ -658,6 +737,9 @@ export class ISSStage implements Stage {
     const suit = this.suit!;
     // the body quaternion carries the head pitch; keep the suit upright-ish (half the pitch) so it reads as a person
     const q = this.body.quaternion.clone();
+    const tt = this.elapsed;
+    // weightless drift: a slow sway and roll around the helmet
+    q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(tt * 0.31) * 0.035, Math.sin(tt * 0.23) * 0.03, Math.sin(tt * 0.27) * 0.04)));
     suit.quaternion.copy(q);
     suit.position.copy(this.body.position).sub(new THREE.Vector3(0, 1.66, -0.03).applyQuaternion(q));
     for (const [j, r] of this.suitRest) j.quaternion.copy(r);
@@ -668,7 +750,7 @@ export class ISSStage implements Stage {
       const p = joint.getWorldPosition(new THREE.Vector3());
       const inv = joint.getWorldQuaternion(new THREE.Quaternion()).invert();
       const dir = target.clone().sub(p).applyQuaternion(inv).normalize();
-      joint.quaternion.multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir));
+      joint.quaternion.multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
       joint.updateMatrixWorld(true);
     };
     const t = this.elapsed;
@@ -680,15 +762,28 @@ export class ISSStage implements Stage {
       } else {
         // relaxed float: arms a little forward and out, slow drift
         const s = nm === 'L' ? -1 : 1;
-        J['jShoulder' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.45 + Math.sin(t * 0.7 + s) * 0.05, 0, 0.18 * s)));
-        J['jElbow' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.6, 0, 0)));
+        // relaxed neutral-buoyancy posture: arms float forward and out, elbows soft, a slow asymmetric drift
+        const sh = J['jShoulder' + nm], el = J['jElbow' + nm];
+        if (sh) aim(sh, sh.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0.35 * s, -0.75, -0.45 + Math.sin(t * 0.5 + s) * 0.08).applyQuaternion(q)));
+        el?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.55 + Math.sin(t * 0.6 + s * 2) * 0.08, 0, 0)));
       }
     }
     // legs: a relaxed weightless bend (knees forward), tighter crouch under alert
-    const crouch = this.alert ? 0.75 : 0.25;
-    for (const nm of ['L', 'R']) {
-      J['jHip' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(crouch * 0.8, 0, 0)));
-      J['jKnee' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-crouch * 1.3, 0, 0)));
+    // legs: the weightless "neutral body posture" (hips and knees softly flexed), tighter under alert
+    const crouch = this.alert ? 0.8 : 0.35;
+    for (const [nm, s] of [['L', -1], ['R', 1]] as const) {
+      const hip = J['jHip' + nm], knee = J['jKnee' + nm];
+      if (hip) aim(hip, hip.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0.08 * s, -1, -0.55 * crouch + Math.sin(t * 0.4 + s) * 0.05).applyQuaternion(q)));
+      if (knee) aim(knee, knee.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0.02 * s, -1, 0.5 * crouch).applyQuaternion(q)));
+    }
+    // breathing: the chest rises a touch
+    J['jTorso']?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.sin(t * 1.6) * 0.012, 0, 0)));
+    // follow-through: every joint eases toward its new pose (no snapping), heavier for the legs
+    const k = 1 - Math.exp(-this.suitDt * 7);
+    for (const [j, prev] of this.suitPrev) {
+      const kk = /Hip|Knee/.test(j.name) ? k * 0.6 : k;
+      prev.slerp(j.quaternion, kk);
+      j.quaternion.copy(prev);
     }
     // a key light near the camera so night shots still read (the helmet lamps light the work, not the suit)
     this.cineLight.position.copy(this.camera.position).add(new THREE.Vector3(0, 0.6, 0));
@@ -801,7 +896,9 @@ export class ISSStage implements Stage {
     this.updateCamera(dt);
     this.L.update(dt);
     this.R.update(dt);
+    this.suitDt = dt;
     if (this.suit?.visible) this.poseSuit();
+    this.updateIdle(dt);
     this.updateTether();
     this.updateDebris(dt);
     this.updateShadowCasters(dt);
@@ -973,6 +1070,20 @@ export class ISSStage implements Stage {
   }
 
   render(renderer: THREE.WebGLRenderer) {
+    if (this.visorLive && this.suit?.visible && (this.visorTick++ & 1) === 0) {
+      // real reflections: station, debris streaks, sparks, the Sun and Earth around the helmet
+      const head = this.body.position;
+      this.visorCam.position.copy(head);
+      this.earthProxy.position.copy(head).add(new THREE.Vector3(0, -3000, 0));
+      this.sunProxy.position.copy(head).addScaledVector(this.sunDir, 900);
+      this.suit.visible = false;
+      this.visorCam.update(renderer, this.scene);
+      this.suit.visible = true;
+      if (this.visorMat.envMap !== this.visorRT.texture) { this.visorMat.envMap = this.visorRT.texture; this.visorMat.needsUpdate = true; }
+    } else if (!this.visorLive && this.visorMat.envMap === this.visorRT.texture) {
+      this.visorMat.envMap = null;
+      this.visorMat.needsUpdate = true;
+    }
     if (this.raysOn) {
       // occlusion buffer: the Sun disc, with everything in the station scene drawn black in front of it
       const cam = this.camera;
