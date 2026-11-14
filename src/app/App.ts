@@ -157,11 +157,11 @@ export class App {
     this.showMissionSelect();
   }
 
-  showMissionSelect() {
+  showMissionSelect(from?: string) {
     this.space.showModel(null);
     if (!this.selectStage) this.selectStage = new SelectStage(this.assets, this.engine.renderer);
     const stage = this.selectStage;
-    stage.reset();
+    stage.reset(from === 'iss' ? 'earth' : from); // returning from a mission: pull out from its planet
     stage.resize(window.innerWidth, window.innerHeight);
     this.engine.setStage(stage);
     this.link.send({ t: 'layout', layout: 'lobby', title: 'Choose your mission', subtitle: 'Tap a mission to launch it', missions: missionEntries() });
@@ -220,7 +220,7 @@ export class App {
     this.input.pointerEnabled = false;
     if (exit.to === 'restart') return this.launch(id);
     if (exit.to === 'mission') return this.launch(exit.id);
-    this.showMissionSelect();
+    this.showMissionSelect(id);
   }
 
   // ───────────────────────────────────────────── pause menu

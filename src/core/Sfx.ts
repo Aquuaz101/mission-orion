@@ -104,6 +104,33 @@ export class Sfx {
     this.burst(dur, 900, 4, 0.04);
   }
 
+  /** Rotary-percussive drill buzz. */
+  drill(dur = 1.2) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator(), lfo = ctx.createOscillator(), lg = ctx.createGain(), g = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(70, t);
+    osc.frequency.linearRampToValueAtTime(118, t + dur * 0.5);
+    lfo.frequency.value = 31;
+    lg.gain.value = 9;
+    lfo.connect(lg).connect(osc.frequency);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.07, t + 0.12);
+    g.gain.setValueAtTime(0.07, t + dur - 0.2);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    osc.connect(g).connect(this.master);
+    osc.start(t); lfo.start(t);
+    osc.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
+    this.burst(dur, 2600, 2, 0.05);
+  }
+  /** Deep "whoomp" for the satellite-view jump cuts. */
+  whoosh() {
+    this.tone(120, 0.5, { gain: 0.16, to: 38, type: 'sine', attack: 0.02 });
+    this.burst(0.35, 500, 0.6, 0.12);
+  }
+
   /** Looping background bed. 'space' = deep drone, 'mars' = wind (intensity via set()). */
   setAmbience(kind: 'space' | 'mars' | 'none') {
     this.ambience?.stop();

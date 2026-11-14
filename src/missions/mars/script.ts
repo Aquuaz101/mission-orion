@@ -88,7 +88,7 @@ export const LINES = {
   start: 'Objective: collect geological samples. Drive to the first cyan marker.',
   next: 'Next sample marked. Proceed to the beacon.',
   steep: 'Slope too steep for the rover. Find a gentler route.',
-  speedNote: 'For gameplay, you drive about 165 times faster than the real Perseverance, whose top speed is around 0.15 kilometres per hour.',
+  speedNote: 'For gameplay, you drive more than 100 times faster than the real Perseverance, whose top speed is around 0.15 kilometres per hour.',
   emergency: [
     { text: 'Mission Control to Rover Operator. We have detected an unexpected situation.', mood: 'alert' as const },
     { text: 'A scout rover operating nearby, ARES-7, has lost power after a severe dust storm. Its solar arrays are no longer generating enough energy.', mood: 'alert' as const },

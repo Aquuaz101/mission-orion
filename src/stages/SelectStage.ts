@@ -204,10 +204,17 @@ export class SelectStage implements Stage {
   dispose() {
     this.composer.dispose();
   }
-  /** Reset after returning from a mission. */
-  reset() {
+  /** Reset after returning from a mission. With `from`, the camera starts at that planet and pulls out to the map. */
+  reset(from?: string) {
     this.diving = false;
     this.grade.uniforms.fade.value = 1;
+    const m = from === 'mars' || from === 'jupiter' || from === 'earth' ? this.planets[from] : null;
+    if (m) {
+      const r = (m.geometry as THREE.SphereGeometry).parameters.radius;
+      const out = m.position.clone().setY(0).normalize();
+      this.camPos.copy(m.position).addScaledVector(out, -r * 2.2).add(new THREE.Vector3(0, r * 0.8, 0));
+      this.lookPos.copy(m.position);
+    }
     this.setFocus('overview');
   }
 }

@@ -281,16 +281,19 @@ export class MarsMission implements Mission {
       const poi = this.pois.get(this.targetId!)!;
       const prevView = st.view;
       st.setView('chase');
-      // side-on camera to show the arm reaching the rock
+      // camera in front of the rover, off to one side, so the arm works toward the viewer
       const rock = st.specimens.get(poi.id)!.position.clone();
-      st.setOrbit(rock.clone().addScaledVector(st.forward, -1), 6.5, 2.2, 0.12); // slow orbit to watch the arm work
+      const toRock = Math.atan2(rock.x - st.roverPos.x, rock.z - st.roverPos.z);
+      st.setOrbit(rock.clone().add(new THREE.Vector3(0, 0.25, 0)), 4.4, 1.5, 0.07, toRock + 0.95);
       this.hud!.classList.add('cine');
       this.app.link.buzz([20, 40, 20, 40, 20]);
       await st.pickUp(poi.id, (s) => {
         if (s === 'approach') this.showProgress('Autonomous approach');
-        if (s === 'reach') { this.showProgress('Robotic arm · reaching'); this.app.sfx.servo(1.6); }
-        if (s === 'grab') { this.showProgress('Coring · sample acquired'); this.app.sfx.shutter(); }
-        if (s === 'stow') { this.showProgress('Stowing arm · sealing tube'); this.app.sfx.servo(1.4); }
+        if (s === 'deploy') { this.showProgress('Robotic arm · deploying'); this.app.sfx.servo(2.0); }
+        if (s === 'reach') { this.showProgress('Positioning drill'); this.app.sfx.servo(1.5); }
+        if (s === 'drill') { this.showProgress('Coring sample'); this.app.sfx.drill(1.4); this.app.link.buzz(900); }
+        if (s === 'lift') { this.showProgress('Sample acquired'); this.app.sfx.blip(); this.app.sfx.servo(1.4); }
+        if (s === 'stow') { this.showProgress('Stowing arm · sealing tube'); this.app.sfx.servo(2.0); }
       });
       if (this.disposed) return;
       st.setOrbit(null);
@@ -489,7 +492,33 @@ export class MarsMission implements Mission {
     this.phase = 'complete';
     this.locked = true;
     this.paintObjective();
-    await this.app.commander.say(LINES.wrap);
+    const st = this.stage!, hud = this.hud!;
+    this.app.input.releasePointer();
+    st.setView('chase');
+    hud.classList.remove('fp');
+    hud.classList.add('cine', 'sat');
+    const lines = this.app.commander.say(LINES.wrap);
+    const sat = html(`<div class="sat-ui mono"><div class="sat-flash"></div><div class="sat-tag"><i></i><span>Perseverance-class rover</span></div><div class="sat-info"><b>Mission complete</b><span class="sat-alt"></span></div></div>`);
+    hud.appendChild(sat);
+    const tag = $(sat, '.sat-tag');
+    const off = this.app.engine.onTick(() => {
+      const s = st.toScreen(st.roverPos);
+      tag.style.transform = `translate(${(s.x * window.innerWidth).toFixed(1)}px, ${(s.y * window.innerHeight).toFixed(1)}px)`;
+    });
+    this.disposers.push(off);
+    // Camera tilts to look straight down, then jumps up in three cuts to a satellite view.
+    await st.satelliteExit((level, alt) => {
+      $(sat, '.sat-alt').textContent = `Jezero Crater · 18.4° N 77.5° E · altitude ${alt} m`;
+      if (level === 0) return;
+      this.app.sfx.whoosh();
+      this.app.link.buzz(30);
+      const fl = $(sat, '.sat-flash');
+      fl.classList.remove('go');
+      void fl.offsetWidth;
+      fl.classList.add('go');
+      sat.classList.toggle('far', level >= 2);
+    });
+    await lines;
     if (this.disposed) return;
     this.showReport();
   }
@@ -568,10 +597,16 @@ export class MarsMission implements Mission {
 
         <div class="mh-tl">
           <div class="minimap"><canvas width="220" height="220"></canvas><span class="mm-n mono">N</span></div>
-          <div class="obj-block">
-            <div class="obj-head mono">Objective</div>
-            <div class="obj-text"></div>
-            <div class="obj-sub mono"></div>
+          <div class="obj-col">
+            <div class="obj-block">
+              <div class="obj-head mono">Objective</div>
+              <div class="obj-text"></div>
+              <div class="obj-sub mono"></div>
+            </div>
+            <div class="sample-bar">
+              <div class="sb-head mono"><span>Rock samples</span><b class="sb-count">0 / 3</b></div>
+              <div class="sb-segs"></div>
+            </div>
           </div>
         </div>
 
@@ -589,7 +624,6 @@ export class MarsMission implements Mission {
             <div><label>Elevation</label><b class="elev">-</b><i>m</i></div>
             <div><label>Heading</label><b class="hdg">000°</b></div>
           </div>
-          <div class="slots"></div>
         </div>
 
         <div class="notify mono"></div>
@@ -636,8 +670,17 @@ export class MarsMission implements Mission {
 
   private paintInventory() {
     if (!this.hud) return;
-    const kinds: SampleKind[] = ['igneous', 'hematite', 'sedimentary'];
-    $(this.hud, '.slots').innerHTML = kinds.map((k, i) => `<div class="slot ${this.collected.includes(k) ? 'full' : ''}" title="${SAMPLES[k].name}"><i>${i + 1}</i></div>`).join('') + '<span class="mono slots-label">Sample tubes</span>';
+    // Progress bar: the three rocks to collect. It only ever talks about samples (no story spoilers).
+    const kinds: [SampleKind, string][] = [['igneous', 'Igneous'], ['hematite', 'Hematite'], ['sedimentary', 'Sedimentary']];
+    const next = kinds.find(([k]) => !this.collected.includes(k))?.[0];
+    $(this.hud, '.sb-count').textContent = `${this.collected.length} / 3`;
+    const segs = $(this.hud, '.sb-segs');
+    if (!segs.children.length) segs.innerHTML = kinds.map(([, label]) => `<div class="sb-seg"><i></i><span class="mono">${label}</span></div>`).join('');
+    kinds.forEach(([k], i) => {
+      const seg = segs.children[i];
+      seg.classList.toggle('done', this.collected.includes(k)); // fills with a short animation
+      seg.classList.toggle('next', k === next);
+    });
   }
 
   private targetPos(): { pos: THREE.Vector3; label: string } | null {

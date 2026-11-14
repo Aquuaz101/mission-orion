@@ -9,8 +9,9 @@ import type { Stage } from '../../core/Engine';
 import type { Assets } from '../../core/Assets';
 import { Terrain, makeDetailTextures } from './terrain';
 import { rng, rockGeometry, createSpecimen, createAres7, TowCable } from './props';
+import { RoverArm } from './arm';
 
-export const MAX_SPEED = 4.2;   // m/s gameplay top speed (real Perseverance ≈ 0.042 m/s)
+export const MAX_SPEED = 5.4;   // m/s gameplay top speed (real Perseverance ≈ 0.042 m/s)
 const REVERSE_SPEED = 1.8;
 const TURN_RATE = 0.85;
 const MAX_CLIMB_DEG = 28;
@@ -30,6 +31,8 @@ const BELLY = [[0, 0], [0, 0.9], [0, -0.9], [-0.6, 0], [0.6, 0]] as const;
 const BELLY_CLEAR = 0.62;
 const REAR_HITCH = new THREE.Vector3(0, 0.6, -1.7);
 const TOW_LENGTH = 2.4;
+/** Height of the arm turret's centre above a rock while drilling (m). */
+const HOVER = 0.36;
 
 export type ViewMode = 'chase' | 'fp';
 export type Quality = 'low' | 'medium' | 'high';
@@ -61,7 +64,7 @@ const GodRaysShader = {
         acc += vec3(l) * decay;
         decay *= 0.955;
       }
-      gl_FragColor = vec4(base + acc * strength * (0.48 / float(samples)) * vec3(1.0, 0.8, 0.55), 1.0);
+      gl_FragColor = vec4(base + acc * strength * (0.26 / float(samples)) * vec3(1.0, 0.8, 0.55), 1.0);
     }`,
 };
 
@@ -103,8 +106,8 @@ function patchSunFog() {
   vec3 fogTint = fogColor;
   #if defined( STANDARD ) || defined( LAMBERT ) || defined( PHONG )
     vec3 sunV = normalize( ( viewMatrix * vec4( ${s.x.toFixed(4)}, ${s.y.toFixed(4)}, ${s.z.toFixed(4)}, 0.0 ) ).xyz );
-    float scatter = pow( max( dot( normalize( -vViewPosition ), sunV ), 0.0 ), 5.0 );
-    fogTint = mix( fogColor, fogColor * vec3( 1.75, 1.45, 1.05 ), scatter );
+    float scatter = pow( max( dot( normalize( -vViewPosition ), sunV ), 0.0 ), 8.0 );
+    fogTint = mix( fogColor, fogColor * vec3( 1.32, 1.18, 1.0 ), scatter );
   #endif
   gl_FragColor.rgb = mix( gl_FragColor.rgb, fogTint, fogFactor );
 #endif`;
@@ -127,17 +130,13 @@ export class MarsStage implements Stage {
   // rover
   readonly rover = new THREE.Group();
   private model: THREE.Object3D | null = null;
-  private armMixer: THREE.AnimationMixer | null = null;
-  private shoulder: THREE.Object3D | null = null;
+  private arm: RoverArm | null = null;
   private turret: THREE.Object3D | null = null;
   private head: THREE.Object3D | null = null;
   private headBase = new THREE.Quaternion();
   private headAxis = new THREE.Vector3(0, 1, 0);
-  private shoulderAxis = new THREE.Vector3(1, 0, 0);
-  private armAngle = 0;
-  private armDown = 1.2;
+  /** Where a rock should sit (rover-local, on the ground) for a comfortable arm reach. */
   private pickupLocal = new THREE.Vector3(0.3, 0, 2.1);
-  private armTime = 0;
   private wheels: { pivot: THREE.Object3D; x: number }[] = [];
   private wheelSplit: { group: THREE.Object3D; originals: THREE.Mesh[]; added: THREE.Object3D[] } | null = null;
   private lastPose = { x: 0, z: 0, yaw: 0, set: false };
@@ -169,6 +168,10 @@ export class MarsStage implements Stage {
   private lastLookInput = -10;
   autoRecentre = true;
   private cine: { keys: CineKey[]; t: number; dur: number; resolve: () => void } | null = null;
+  /** Direct camera control (satellite pull-out). */
+  private camOverride: { pos: THREE.Vector3; quat: THREE.Quaternion } | null = null;
+  /** Multiplier on haze density (thinned out as the camera climbs to satellite view). */
+  fogScale = 1;
   private orbit: { center: THREE.Vector3; radius: number; height: number; angle: number; speed: number } | null = null;
 
   // effects
@@ -211,10 +214,12 @@ export class MarsStage implements Stage {
           vec3 col = mix(horizon, zenith, pow(max(h, 0.0), 0.42));
           col = mix(col, horizon * 1.15, smoothstep(0.08, -0.02, h)); // bright haze band at the horizon
           float sd = max(dot(d, sunDir), 0.0);
-          col += vec3(1.0, 0.72, 0.38) * pow(sd, 3.0) * 0.55;          // wide warm glow
-          col += vec3(1.0, 0.86, 0.6) * pow(sd, 32.0) * 1.6;            // halo
-          col += vec3(0.55, 0.68, 0.95) * pow(sd, 220.0) * 1.2;         // bluish inner aureole (seen in rover images)
-          col += vec3(1.0, 0.98, 0.94) * smoothstep(0.9993, 0.9997, sd) * 30.0; // Sun disk
+          // The Sun: a defined disc with a tight aureole and a restrained warm glow, so looking
+          // toward it stays readable instead of washing out the frame.
+          col += vec3(1.0, 0.70, 0.36) * pow(sd, 5.0) * 0.2;            // wide warm glow
+          col += vec3(1.0, 0.84, 0.58) * pow(sd, 70.0) * 0.5;           // halo
+          col += vec3(0.62, 0.74, 0.98) * pow(sd, 900.0) * 0.9;         // bluish inner aureole (seen in rover images)
+          col += vec3(1.0, 0.97, 0.9) * smoothstep(0.99974, 0.99986, sd) * 12.0; // Sun disc with a soft limb
           // streak clouds (stretched fbm), lit from the Sun side
           vec2 cp = d.xz / max(d.y + 0.12, 0.05);
           float cl = fbm(vec2(cp.x * 0.35 + time * 0.004, cp.y * 1.6));
@@ -276,7 +281,7 @@ export class MarsStage implements Stage {
     this.rays.uniforms.samples.value = this.preset.rays;
     this.rays.enabled = this.preset.rays > 0;
     this.composer.addPass(this.rays);
-    if (this.preset.bloom) this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.42, 0.75, 0.88));
+    if (this.preset.bloom) this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.16, 0.35, 1.5));
     this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.grade.uniforms.grain.value = this.preset.grain;
@@ -474,19 +479,16 @@ export class MarsStage implements Stage {
     this.rover.add(model);
     this.scene.add(this.rover);
 
-    this.armMixer = new THREE.AnimationMixer(model);
-    for (const clip of g.animations) if (/^(arm|turret|hinge)/i.test(clip.name)) this.armMixer.clipAction(clip).play();
-    this.armMixer.setTime(0);
-    this.shoulder = model.getObjectByName('arm003') ?? null;
-    this.turret = model.getObjectByName('turret_obj') ?? null;
+    this.arm = RoverArm.create(model, g.animations);
+    this.turret = this.arm?.turret ?? null;
     this.head = model.getObjectByName('head') ?? null;
     if (this.head) {
       this.headBase.copy(this.head.quaternion);
       this.headAxis.copy(axisInParent(this.head, model, new THREE.Vector3(0, 1, 0)));
     }
-    if (this.shoulder && this.turret) this.solveArm(model);
+    if (this.arm) this.choosePickupSpot(this.arm);
     this.splitWheels(model);
-    this.mergeStatic(model, g.animations);
+    this.mergeStatic(model);
   }
 
   private merged: { meshes: THREE.Mesh[]; hidden: THREE.Mesh[] } | null = null;
@@ -496,14 +498,10 @@ export class MarsStage implements Stage {
    * never moves (body, suspension, instruments) is merged per material into a handful of
    * meshes at load; the arm, mast head and wheels stay separate so they can animate.
    */
-  private mergeStatic(model: THREE.Object3D, clips: THREE.AnimationClip[]) {
-    const dynamic = new Set<THREE.Object3D>();
-    // only the clips we actually play (arm/turret/hinge) animate nodes; mast/deploy clips are never used
-    for (const clip of clips.filter((c) => /^(arm|turret|hinge)/i.test(c.name))) for (const tr of clip.tracks) {
-      const node = model.getObjectByName(tr.name.split('.')[0]);
-      if (node) dynamic.add(node);
-    }
-    for (const n of [this.head, this.turret, this.shoulder, ...this.wheels.map((w) => w.pivot)]) if (n) dynamic.add(n);
+  private mergeStatic(model: THREE.Object3D) {
+    // only the arm joints, the mast head and the wheels ever move
+    const dynamic = new Set<THREE.Object3D>(this.arm?.nodes ?? []);
+    for (const n of [this.head, this.turret, ...this.wheels.map((w) => w.pivot)]) if (n) dynamic.add(n);
     const isDynamic = (o: THREE.Object3D) => {
       for (let p: THREE.Object3D | null = o; p && p !== model; p = p.parent) if (dynamic.has(p)) return true;
       return false;
@@ -613,25 +611,15 @@ export class MarsStage implements Stage {
     this.wheelSplit = { group: grp, originals: meshes, added };
   }
 
-  private solveArm(model: THREE.Object3D) {
-    const sh = this.shoulder!, tu = this.turret!;
-    this.shoulderAxis.copy(axisInParent(sh, model, new THREE.Vector3(1, 0, 0)));
-    const handAt = (angle: number) => {
-      this.armMixer!.setTime(6.2);
-      sh.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(this.shoulderAxis, angle));
-      model.updateMatrixWorld(true);
-      return model.worldToLocal(tu.getWorldPosition(new THREE.Vector3()));
-    };
-    const sign = handAt(0.3).y < handAt(0).y ? 1 : -1;
-    let lo = 0, hi = 2.2;
-    for (let i = 0; i < 24; i++) {
-      const mid = (lo + hi) / 2;
-      if (handAt(sign * mid).y > 0.32) lo = mid; else hi = mid;
+  /** Pick the ground spot in front of the rover that the arm reaches most comfortably. */
+  private choosePickupSpot(arm: RoverArm) {
+    let best = Infinity;
+    for (const z of [2.25, 2.1, 1.95]) for (const x of [0.2, 0.4]) {
+      const { error, pose } = arm.solve(new THREE.Vector3(x, HOVER, z));
+      const effort = pose.reduce((a, b) => a + Math.abs(b), 0);
+      const score = error * 20 + effort * 0.05 - z * 0.02;
+      if (score < best) { best = score; this.pickupLocal.set(x, 0, z); }
     }
-    this.armDown = sign * lo;
-    this.pickupLocal.copy(handAt(this.armDown)).setY(0);
-    this.armMixer!.setTime(0);
-    model.updateMatrixWorld(true);
   }
 
   private buildDust() {
@@ -798,7 +786,7 @@ export class MarsStage implements Stage {
     this.sandiness = THREE.MathUtils.smoothstep(0.42 - t.rockiness(this.roverPos.x, this.roverPos.z), 0, 0.25);
     const top = (throttle >= 0 ? MAX_SPEED : REVERSE_SPEED) * scale * (1 - this.sandiness * 0.3) * (this.towing ? 0.72 : 1);
     const target = throttle * top;
-    const accel = (Math.abs(target) > Math.abs(this.speed) ? 1.6 : 3.4) * (this.towing ? 0.7 : 1);
+    const accel = (Math.abs(target) > Math.abs(this.speed) ? 2.1 : 3.8) * (this.towing ? 0.7 : 1);
     const ds = target - this.speed;
     this.speed += Math.sign(ds) * Math.min(Math.abs(ds), accel * dt);
     this.roverYaw -= steer * TURN_RATE * (1 - Math.min(Math.abs(this.speed) / MAX_SPEED, 1) * 0.3) * dt * (this.speed < -0.2 ? -1 : 1);
@@ -848,12 +836,62 @@ export class MarsStage implements Stage {
     this.orbit = null;
     return new Promise<void>((resolve) => (this.cine = { keys, t: 0, dur: seconds, resolve }));
   }
-  setOrbit(center: THREE.Vector3 | null, radius = 10, height = 4, speed = 0.22) {
+  /** Slow cinematic orbit around a point. `angle` (world heading from the centre) picks the starting side. */
+  setOrbit(center: THREE.Vector3 | null, radius = 10, height = 4, speed = 0.22, angle?: number) {
     this.cine = null;
-    this.orbit = center ? { center: center.clone(), radius, height, angle: Math.atan2(this.camPos.x - center.x, this.camPos.z - center.z) || 0, speed } : null;
+    this.orbit = center ? { center: center.clone(), radius, height, angle: angle ?? (Math.atan2(this.camPos.x - center.x, this.camPos.z - center.z) || 0), speed } : null;
   }
   get inCutscene() {
-    return !!this.cine || !!this.orbit;
+    return !!this.cine || !!this.orbit || !!this.camOverride;
+  }
+
+  /**
+   * Mission-exit pull-out: the camera tilts to look straight down above the rover, then jumps
+   * up in three stepped cuts to a satellite view of the whole site (north up). The camera
+   * stays there, drifting slowly, until the stage is disposed.
+   */
+  async satelliteExit(onStep?: (level: number, altitude: number) => void) {
+    this.cine = null;
+    this.orbit = null;
+    const cam = this.camera;
+    const p0 = cam.position.clone(), q0 = cam.quaternion.clone();
+    const qDown = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().lookAt(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)),
+    );
+    const P = this.roverPos.clone();
+    const ov = (this.camOverride = { pos: p0.clone(), quat: q0.clone() });
+    const ease = (k: number) => k * k * (3 - 2 * k);
+    const H0 = 30;
+    const x0 = this.exposure;
+    onStep?.(0, H0);
+    await this.animate(1.6, (k) => {
+      const e = ease(k);
+      ov.pos.set(THREE.MathUtils.lerp(p0.x, P.x, e), THREE.MathUtils.lerp(p0.y, P.y + H0, e), THREE.MathUtils.lerp(p0.z, P.z, e));
+      ov.quat.slerpQuaternions(q0, qDown, e);
+      this.fogScale = THREE.MathUtils.lerp(1, 0.45, e);
+      this.exposure = THREE.MathUtils.lerp(x0, 1.3, e);
+    });
+    await this.animate(0.35, () => {});
+    // [altitude above the rover, how far the view centre shifts from the rover to the map centre, haze]
+    // The low afternoon Sun leaves flat ground dim when seen from straight above, so the exposure
+    // is opened up with altitude (like a satellite camera would be).
+    const levels: [number, number, number, number][] = [[95, 0.1, 0.3, 1.55], [185, 0.45, 0.16, 1.85], [300, 1, 0.09, 2.1]];
+    let prev = H0;
+    for (let i = 0; i < levels.length; i++) {
+      const [h, c, fog, exp] = levels[i];
+      if (i === 0 && this.near) this.near.pebbles.visible = this.near.stones.visible = false; // too small to matter from here
+      onStep?.(i + 1, h);
+      this.fogScale = fog;
+      this.exposure = exp;
+      const cx = P.x * (1 - c), cz = P.z * (1 - c);
+      const from = prev + (h - prev) * 0.8; // jump-cut most of the way, then settle
+      await this.animate(0.75, (k) => ov.pos.set(cx, P.y + THREE.MathUtils.lerp(from, h, 1 - Math.pow(1 - k, 3)), cz));
+      await this.animate(i === levels.length - 1 ? 0.9 : 0.4, (k) => (ov.pos.y = P.y + h * (1 + 0.012 * k)));
+      prev = h * 1.012;
+    }
+    // slow drift while the report is up
+    const y0 = ov.pos.y;
+    void this.animate(600, (k) => (ov.pos.y = y0 * (1 + 0.5 * k)));
   }
 
   toScreen(p: THREE.Vector3) {
@@ -862,9 +900,15 @@ export class MarsStage implements Stage {
   }
 
   // ─────────────────────────────────────────── arm pick-up
-  async pickUp(id: string, onStage?: (s: 'approach' | 'reach' | 'grab' | 'stow') => void) {
+  /**
+   * Sample acquisition: line the rover up on the rock, unfold the arm (NASA's deploy motion),
+   * reach down to the rock with solved joint angles, drill, lift the rock out with the turret
+   * and stow. Every stage is a single eased pass: nothing loops.
+   */
+  async pickUp(id: string, onStage?: (s: 'approach' | 'deploy' | 'reach' | 'drill' | 'lift' | 'stow') => void) {
     const rock = this.specimens.get(id);
     if (!rock) return;
+    const ease = (k: number) => k * k * (3 - 2 * k);
     const rp = rock.position;
     const yaw = Math.atan2(rp.x - this.roverPos.x, rp.z - this.roverPos.z);
     const l = this.pickupLocal;
@@ -873,25 +917,46 @@ export class MarsStage implements Stage {
     const p0 = this.roverPos.clone(), y0 = this.roverYaw;
     const dy = Math.atan2(Math.sin(yaw - y0), Math.cos(yaw - y0));
     await this.animate(1.6, (k) => {
-      const e = k * k * (3 - 2 * k);
+      const e = ease(k);
       this.roverPos.x = THREE.MathUtils.lerp(p0.x, goal.x, e);
       this.roverPos.z = THREE.MathUtils.lerp(p0.z, goal.z, e);
       this.roverYaw = y0 + dy * e;
       this.speed = 0;
     });
-    if (!this.armMixer || !this.turret) return void this.removeSpecimen(id);
+    const arm = this.arm;
+    if (!arm || !this.model) return void this.removeSpecimen(id);
+    await this.animate(0.35, () => {}); // let the suspension settle before measuring
+
+    // Solve the reach for where the rock really is (terrain tilt included).
+    this.rover.updateMatrixWorld(true);
+    const target = this.model.worldToLocal(rp.clone().add(new THREE.Vector3(0, HOVER, 0)));
+    arm.reachPose = arm.solve(target).pose;
+
+    onStage?.('deploy');
+    await this.animate(2.0, (k) => (arm.deploy = ease(k)));
     onStage?.('reach');
-    await this.animate(1.8, (k) => (this.armTime = 6.2 * k));
-    await this.animate(1.3, (k) => (this.armAngle = this.armDown * (k * k * (3 - 2 * k))));
-    onStage?.('grab');
-    await this.animate(0.5, () => {});
-    this.turret.attach(rock);
-    await this.animate(1.1, (k) => (this.armAngle = this.armDown * (1 - k * k * (3 - 2 * k))));
+    await this.animate(1.5, (k) => (arm.reach = ease(k)));
+    onStage?.('drill');
+    const home = rp.clone();
+    await this.animate(1.4, (k) => {
+      arm.spin = k * k * 16;
+      rock.position.set(home.x + Math.sin(k * 90) * 0.006, home.y, home.z + Math.cos(k * 70) * 0.006);
+      if (Math.random() < 0.45) this.spawnPuff(home.x, home.y + 0.1, home.z, (Math.random() - 0.5) * 0.9, 0.3 + Math.random() * 0.4, (Math.random() - 0.5) * 0.9, 0.35);
+    });
+    rock.position.copy(home);
+    arm.turret.attach(rock); // the turret now holds the rock
+    onStage?.('lift');
+    await this.animate(1.4, (k) => (arm.reach = 1 - ease(k)));
     onStage?.('stow');
-    await this.animate(1.8, (k) => (this.armTime = THREE.MathUtils.lerp(18, 24.16, k)));
-    await this.animate(0.5, (k) => rock.scale.setScalar(1 - k));
+    const s0 = rock.scale.clone();
+    await this.animate(2.0, (k) => {
+      arm.deploy = 1 - ease(k);
+      rock.scale.copy(s0).multiplyScalar(1 - THREE.MathUtils.smoothstep(k, 0.55, 0.95)); // sealed into the sample cache
+    });
     this.removeSpecimen(id);
-    this.armTime = 0;
+    arm.spin = 0;
+    arm.reach = 0;
+    arm.deploy = 0;
   }
 
   private jobs: { t: number; seconds: number; fn: (k: number) => void; resolve: () => void }[] = [];
@@ -964,7 +1029,7 @@ export class MarsStage implements Stage {
 
     // Storm look
     const s = this.storm;
-    this.fog.density = 0.0042 + s * s * 0.034;
+    this.fog.density = (0.0042 + s * s * 0.034) * this.fogScale;
     this.fog.color.copy(FOG).lerp(STORM_FOG, s);
     this.skyMat.uniforms.storm.value = s;
     this.skyMat.uniforms.time.value = this.elapsed;
@@ -1045,13 +1110,17 @@ export class MarsStage implements Stage {
   }
 
   private updateArm() {
-    if (!this.armMixer || !this.shoulder) return;
-    this.armMixer.setTime(this.armTime);
-    if (this.armAngle) this.shoulder.quaternion.premultiply(new THREE.Quaternion().setFromAxisAngle(this.shoulderAxis, this.armAngle));
+    this.arm?.apply();
   }
 
   private updateCamera(dt: number) {
     const P = this.roverPos;
+    if (this.camOverride) {
+      this.camera.position.copy(this.camOverride.pos);
+      this.camera.quaternion.copy(this.camOverride.quat);
+      if (this.head) this.head.visible = true;
+      return;
+    }
     const dYaw = Math.atan2(Math.sin(this.roverYaw - this.camYaw), Math.cos(this.roverYaw - this.camYaw));
     this.camYaw += dYaw * (1 - Math.exp(-dt * 2.0));
     if (this.autoRecentre && this.elapsed - this.lastLookInput > 3.5 && this.view === 'chase') this.lookYaw *= Math.exp(-dt * 0.9);
@@ -1106,6 +1175,18 @@ export class MarsStage implements Stage {
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.lookCur);
     if (this.head) this.head.visible = !(this.view === 'fp' && !this.cine && !this.orbit);
+  }
+
+  /** Emit one dust puff (world position + velocity). */
+  private spawnPuff(x: number, y: number, z: number, vx: number, vy: number, vz: number, size: number) {
+    const pos = this.puffs.geometry.attributes.position as THREE.BufferAttribute;
+    const { life, vel, size: sizes } = this.puffData;
+    const i = this.puffData.next;
+    this.puffData.next = (i + 1) % life.length;
+    pos.setXYZ(i, x, y, z);
+    vel[i * 3] = vx; vel[i * 3 + 1] = vy; vel[i * 3 + 2] = vz;
+    life[i] = 1;
+    sizes[i] = size;
   }
 
   private updatePuffs(dt: number) {
@@ -1192,7 +1273,7 @@ export class MarsStage implements Stage {
 
   dispose() {
     this.composer.dispose();
-    if (this.armMixer) { this.armMixer.setTime(0); this.armMixer.stopAllAction(); }
+    this.arm?.restore();
     if (this.head) { this.head.quaternion.copy(this.headBase); this.head.visible = true; }
     // restore the shared NASA model (merge + wheel split are undone so replays start clean)
     if (this.merged) {
