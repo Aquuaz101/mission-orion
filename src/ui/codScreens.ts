@@ -36,7 +36,6 @@ export function codMainMenu(sfx: Sfx, onAction: (a: CodMenuAction) => void) {
   const groups = GROUPS.map((g) => `<div class="cod-group">${g.map(([a, l]) => `<button class="cod-item" data-a="${a}"><span>${l}</span></button>`).join('')}</div>`).join('');
   const el = html(`
     <section class="cod-menu">
-      <div class="cod-photo"></div>
       <div class="cod-haze"></div>
       <div class="cod-grain"></div>
       <div class="cod-logo fade-up">
@@ -44,7 +43,7 @@ export function codMainMenu(sfx: Sfx, onAction: (a: CodMenuAction) => void) {
         <div class="cod-tag mono">Bring the NASA experience to your home</div>
       </div>
       <nav class="cod-nav">${groups}</nav>
-      <div class="cod-foot mono">NASA Space Apps Challenge project · Background: Hubble above Earth's limb after its 2002 servicing, photographed from Space Shuttle Columbia (STS-109) · NASA</div>
+      <div class="cod-foot mono">NASA Space Apps Challenge project · Earth: NASA Blue Marble + MODIS clouds · Hubble model: NASA 3D Resources</div>
       <div class="cod-hint mono"><span class="kbd">↑</span><span class="kbd">↓</span> navigate <span class="kbd">ENTER</span> select</div>
     </section>`);
   const items = $$(el, '.cod-item');

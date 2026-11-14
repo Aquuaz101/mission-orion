@@ -11,6 +11,7 @@ import { playIntro } from '../ui/intro';
 import { loadingScreen, controlSelect, pairingScreen, howToPlayHtml, sourcesHtml, creditsHtml } from '../ui/screens';
 import { codMainMenu, codMissionSelect, arrowNav, type CodMenuAction } from '../ui/codScreens';
 import { SelectStage } from '../stages/SelectStage';
+import { MenuStage } from '../stages/MenuStage';
 import { missionEntries, MISSIONS } from '../missions/registry';
 
 import type { Mission } from '../missions/types';
@@ -36,6 +37,7 @@ export class App {
   readonly screens: ScreenHost;
   readonly commander: Commander;
   space!: SpaceStage;
+  private menuStage: MenuStage | null = null;
   quality: Quality = (localStorage.getItem('orion.quality') as Quality) || 'high';
 
   private badge = html(`<div class="link-badge" hidden><i></i><span></span></div>`);
@@ -82,6 +84,10 @@ export class App {
     }
     if (this.assets.failed.length) console.warn('[assets] optional assets missing, using fallbacks:', this.assets.failed);
     loading.progress(1, 'All mission systems nominal');
+    // build + warm up the main-menu scene behind the loading screen (shaders compile now, not at the reveal)
+    this.menuStage = new MenuStage(this.assets, this.engine.renderer);
+    this.menuStage.resize(window.innerWidth, window.innerHeight);
+    this.menuStage.render();
     await wait(300);
 
     await loading.ready();
@@ -124,10 +130,11 @@ export class App {
   private selectStage: SelectStage | null = null;
 
   showMenu() {
-    this.engine.setStage(this.space);
+    if (this.menuStage) { this.menuStage.replay(); this.menuStage.resize(window.innerWidth, window.innerHeight); this.engine.setStage(this.menuStage); }
+    else this.engine.setStage(this.space);
     this.space.setShot('menu', 0.45);
     this.space.setOrionHighlight(0.6);
-    this.space.showModel(null); // the menu uses a real NASA photograph as its backdrop
+    this.space.showModel(null);
     this.link.send({ t: 'layout', layout: 'lobby', title: 'Controller linked', subtitle: 'Follow the main screen' });
     this.sfx.setMusic('menu');
     this.sfx.setMusicFocus(1);

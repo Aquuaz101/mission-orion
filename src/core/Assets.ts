@@ -19,7 +19,6 @@ export interface AssetJob {
 }
 
 export const ASSET_JOBS: AssetJob[] = [
-  { key: 'menuPhoto', url: '/images/menu_hubble_earth.jpg', kind: 'texture', kb: 350, label: 'Hubble over Earth · NASA STS-109 photograph', srgb: true },
   { key: 'stars', url: '/textures/stars.jpg', kind: 'texture', kb: 1700, label: 'Star catalogue · NASA Tycho star map', required: true, srgb: true },
   { key: 'earthDay', url: '/textures/earth_day.jpg', kind: 'texture', kb: 230, label: 'Earth imagery · NASA Blue Marble', srgb: true },
   { key: 'earthNight', url: '/textures/earth_night.jpg', kind: 'texture', kb: 440, label: 'Earth at night · NASA Black Marble', srgb: true },
