@@ -1,7 +1,7 @@
-/**
+﻿/**
  * Game audio engine (Web Audio, fully offline).
  *
- * Mix: every sound goes to one of four buses (sfx, ambience, music, voice) → master → (muffle filter) → out.
+ * Mix: every sound goes to one of four buses (sfx, ambience, music, voice) â†’ master â†’ (muffle filter) â†’ out.
  * Music and ambience sit behind a ducking gain that dips whenever ACE speaks.
  * A shared convolution reverb gives cutscene stingers and music some space.
  *
@@ -13,7 +13,7 @@ export type MusicState = 'none' | 'menu' | 'jupiter' | 'mars' | 'tension' | 'res
 type Bus = 'sfx' | 'amb' | 'music' | 'voice';
 export interface Mix { master: number; music: number; sfx: number; voice: number }
 
-const MIX_KEY = 'orion.mix';
+const MIX_KEY = 'orion.mix2'; // v2: new defaults (music up, beds down)
 const midi = (n: number) => 440 * Math.pow(2, (n - 69) / 12);
 
 export class Sfx {
@@ -28,7 +28,9 @@ export class Sfx {
   private ambience: { stop: () => void; set?: (v: number) => void } | null = null;
   private samples = new Map<string, AudioBuffer>();
   private sampleNames = new Set<string>();
-  private mix: Mix = { master: 0.8, music: 0.55, sfx: 0.85, voice: 1 };
+  private mix: Mix = { master: 0.85, music: 0.8, sfx: 0.8, voice: 1 };
+  private stormMuffle = 0;
+  private pausedMuffle = false;
   private music: MusicDirector | null = null;
   private loops = new Map<string, { set: (a: number, b?: number) => void; stop: () => void }>();
   private duckers = 0;
@@ -37,7 +39,6 @@ export class Sfx {
     try {
       const saved = JSON.parse(localStorage.getItem(MIX_KEY) ?? 'null');
       if (saved) Object.assign(this.mix, saved);
-      else if (localStorage.getItem('orion.volume')) this.mix.master = Number(localStorage.getItem('orion.volume'));
     } catch { /* defaults */ }
   }
 
@@ -49,7 +50,7 @@ export class Sfx {
       return;
     }
     const ctx = (this.ctx = new AudioContext());
-    // master chain: buses → master gain → muffle (storm / impacts) → compressor → speakers
+    // master chain: buses â†’ master gain â†’ muffle (storm / impacts) â†’ compressor â†’ speakers
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -10; comp.knee.value = 8; comp.ratio.value = 4; comp.attack.value = 0.005; comp.release.value = 0.2;
     this.muffle = ctx.createBiquadFilter();
@@ -88,7 +89,7 @@ export class Sfx {
     void this.loadSamples();
   }
 
-  // ───────────────────────────────────────────── mix
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ mix
   get level() { return this.mix.master; }
   get mixLevels(): Mix { return { ...this.mix }; }
   setVolume(v: number) { this.setMix({ master: v }); }
@@ -103,23 +104,42 @@ export class Sfx {
     this.out.gain.setTargetAtTime(this.mix.master, t, 0.05);
     this.bus.music.gain.setTargetAtTime(this.mix.music, t, 0.05);
     this.bus.sfx.gain.setTargetAtTime(this.mix.sfx, t, 0.05);
-    this.bus.amb.gain.setTargetAtTime(this.mix.sfx * 0.9, t, 0.05);
+    this.bus.amb.gain.setTargetAtTime(this.mix.sfx * 0.6, t, 0.05); // beds sit under the score
     this.bus.voice.gain.setTargetAtTime(this.mix.voice, t, 0.05);
   }
   /** Dip music + ambience under dialogue (reference counted). */
   duck(on: boolean) {
     this.duckers = Math.max(0, this.duckers + (on ? 1 : -1));
     if (!this.ctx) return;
-    this.duckGain.gain.setTargetAtTime(this.duckers ? 0.38 : 1, this.ctx.currentTime, on ? 0.08 : 0.5);
+    this.duckGain.gain.setTargetAtTime(this.duckers ? 0.6 : 1, this.ctx.currentTime, on ? 0.12 : 0.6);
+  }
+  /** A beat of silence before a big hit: music + beds drop out for ms, then come back. */
+  silence(ms = 700) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime, g = this.duckGain.gain;
+    g.cancelScheduledValues(t);
+    g.setTargetAtTime(0.02, t, 0.05);
+    g.setTargetAtTime(this.duckers ? 0.6 : 1, t + ms / 1000, 0.25);
+  }
+  /** Pause menu: everything goes muffled and distant (like a console shooter's pause). */
+  setPaused(p: boolean) {
+    this.pausedMuffle = p;
+    this.applyMuffle();
+    this.music?.setFocus(p ? 0.15 : 1);
   }
   /** 0 = clear, 1 = heavily muffled (inside the dust storm, after an impact). */
   setMuffle(v: number) {
+    this.stormMuffle = Math.min(1, Math.max(0, v));
+    this.applyMuffle();
+  }
+  private applyMuffle() {
     if (!this.ctx) return;
-    const f = 20000 * Math.pow(900 / 20000, Math.min(1, Math.max(0, v)));
-    this.muffle.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.25);
+    const v = this.pausedMuffle ? 0.82 : this.stormMuffle;
+    const f = 20000 * Math.pow(900 / 20000, v);
+    this.muffle.frequency.setTargetAtTime(f, this.ctx.currentTime, this.pausedMuffle ? 0.08 : 0.25);
   }
 
-  // ───────────────────────────────────────────── generated samples (optional)
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ generated samples (optional)
   private async loadSamples() {
     try {
       const res = await fetch('/audio/sfx/manifest.json');
@@ -152,7 +172,7 @@ export class Sfx {
     return true;
   }
 
-  // ───────────────────────────────────────────── synth primitives
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ synth primitives
   private tone(freq: number, dur: number, opts: { type?: OscillatorType; gain?: number; to?: number; delay?: number; attack?: number; bus?: Bus; verb?: number } = {}) {
     const ctx = this.ctx;
     if (!ctx) return;
@@ -192,7 +212,7 @@ export class Sfx {
     src.stop(t + dur + 0.05);
   }
 
-  // ───────────────────────────────────────────── UI
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ UI
   hover() { if (!this.play('ui_hover', { gain: 0.5 })) this.tone(2600, 0.04, { gain: 0.025, type: 'triangle' }); }
   click() { if (!this.play('ui_click', { gain: 0.7 })) this.tone(880, 0.09, { gain: 0.08, to: 1320, type: 'triangle' }); }
   back() { if (!this.play('ui_back', { gain: 0.7 })) this.tone(900, 0.1, { gain: 0.06, to: 520, type: 'triangle' }); }
@@ -211,8 +231,42 @@ export class Sfx {
     this.tone(180, 0.22, { gain: 0.07, type: 'square', delay: 0.12 });
   }
   blip() { this.tone(1400, 0.06, { gain: 0.04, type: 'sine' }); }
+  /** Tab / segment switch. */
+  tab() { if (!this.play('ui_click', { gain: 0.45, rate: 1.25 })) this.tone(1900, 0.05, { gain: 0.04, type: 'triangle', to: 2300 }); }
+  /** Mission launch: whoosh into a heavy hit. */
+  launch() {
+    if (this.play('ui_launch', { gain: 1, verb: 0.25 })) return;
+    this.whoosh();
+    setTimeout(() => this.impact(1), 380);
+  }
+  /** Objective updated sting. */
+  objective() {
+    if (this.play('objective', { gain: 0.75, verb: 0.2 })) return;
+    this.tone(587, 0.35, { gain: 0.05, type: 'triangle', verb: 0.3 });
+    this.tone(880, 0.5, { gain: 0.045, type: 'triangle', delay: 0.12, verb: 0.3 });
+  }
+  /** Soft terminal typing tick. */
+  typeTick() { this.tone(2400 + Math.random() * 600, 0.012, { gain: 0.012, type: 'square' }); }
+  /** Positional distress-beacon ping. pan -1..1 (left/right), gain 0..1 (distance). */
+  beacon(pan: number, gain: number) {
+    const ctx = this.ctx;
+    if (!ctx || gain < 0.02) return;
+    const p = ctx.createStereoPanner();
+    p.pan.value = Math.max(-1, Math.min(1, pan));
+    p.connect(this.bus.sfx);
+    const buf = this.samples.get('beacon');
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    g.connect(p);
+    const s = ctx.createGain(); s.gain.value = 0.35; g.connect(s).connect(this.reverbIn);
+    if (buf) { const src = ctx.createBufferSource(); src.buffer = buf; src.connect(g); src.start(); return; }
+    const t = ctx.currentTime, o = ctx.createOscillator(), e = ctx.createGain();
+    o.frequency.setValueAtTime(1320, t); o.frequency.exponentialRampToValueAtTime(1180, t + 0.4);
+    e.gain.setValueAtTime(0, t); e.gain.linearRampToValueAtTime(0.09, t + 0.005); e.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+    o.connect(e).connect(g); o.start(t); o.stop(t + 0.65);
+  }
 
-  // ───────────────────────────────────────────── telescope
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ telescope
   shutter() {
     if (this.play('scope_shutter', { gain: 0.9 })) return;
     this.burst(0.05, 4000, 0.8, 0.5);
@@ -265,7 +319,7 @@ export class Sfx {
     p.ng.gain.setTargetAtTime(Math.min(1, slew) * 0.12, t, 0.1);
   }
 
-  // ───────────────────────────────────────────── rover
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ rover
   servo(dur = 0.8) {
     if (this.play('rover_servo', { gain: 0.7, rate: 0.9 + Math.random() * 0.2 })) return;
     this.tone(180, dur, { gain: 0.05, type: 'sawtooth', to: 240, attack: 0.05 });
@@ -350,7 +404,7 @@ export class Sfx {
     this.loops.clear();
   }
 
-  // ───────────────────────────────────────────── cinematic
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ cinematic
   /** Deep "whoomp" for the satellite-view jump cuts. */
   whoosh() {
     if (this.play('whoosh', { gain: 0.9, verb: 0.3 })) return;
@@ -431,7 +485,7 @@ export class Sfx {
     this.tone(open ? 1250 : 950, 0.045, { gain: 0.025, type: 'sine', bus: 'voice', delay: open ? 0.06 : 0 });
   }
 
-  // ───────────────────────────────────────────── ambience
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ ambience
   /** Looping background bed. 'space' = deep drone, 'mars' = wind (storm intensity via setWind). */
   setAmbience(kind: 'space' | 'mars' | 'none') {
     this.ambience?.stop();
@@ -521,15 +575,17 @@ export class Sfx {
     this.ambience?.set?.(v);
   }
 
-  // ───────────────────────────────────────────── music
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ music
   setMusic(state: MusicState, intensity = 0) {
     if (!this.ctx) return;
     if (!this.music) this.music = new MusicDirector(this.ctx, this.bus.music, this.reverbIn, this.noise, this.samples);
     this.music.set(state, intensity);
   }
   setMusicIntensity(v: number) { this.music?.setIntensity(v); }
+  /** 0 = distant/filtered (lobby idle, pause), 1 = full (mission focused / in play). */
+  setMusicFocus(v: number) { this.music?.setFocus(v); }
 
-  // ───────────────────────────────────────────── voice
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ voice
   /** Decode a voice line file (cached). */
   private voiceCache = new Map<string, Promise<AudioBuffer | null>>();
   loadVoice(url: string) {
@@ -560,9 +616,9 @@ export class Sfx {
     // doubled, slightly detuned copy: the "AI" sheen
     const dl = ctx.createDelay(0.05); dl.delayTime.value = 0.014;
     const lfo = ctx.createOscillator(); lfo.frequency.value = 0.6; const lg = ctx.createGain(); lg.gain.value = 0.002; lfo.connect(lg).connect(dl.delayTime); lfo.start();
-    const dg = ctx.createGain(); dg.gain.value = 0.13;
+    const dg = ctx.createGain(); dg.gain.value = 0.05;
     comp.connect(dl).connect(dg).connect(this.bus.voice);
-    const vs = ctx.createGain(); vs.gain.value = 0.12; comp.connect(vs).connect(this.reverbIn);
+    const vs = ctx.createGain(); vs.gain.value = 0.06; comp.connect(vs).connect(this.reverbIn);
     this.voiceChain = hp;
     return hp;
   }
@@ -597,10 +653,13 @@ class MusicDirector {
   private nextBar = 0;
   private bar = 0;
   private out: GainNode;
-  private file: { src: AudioBufferSourceNode; g: GainNode } | null = null;
+  private focusFilter: BiquadFilterNode;
+  private file: { el: HTMLAudioElement; g: GainNode } | null = null;
+  private tracks = new Map<string, string>();
+  private ready: Promise<void>;
 
   private static readonly DEF: Record<Exclude<MusicState, 'none'>, { chords: number[][]; bar: number; cutoff: number; gain: number; pulse?: boolean; perc?: boolean; type: OscillatorType }> = {
-    // D minor: i – VI – III – VII (heroic, restrained)
+    // D minor: i â€“ VI â€“ III â€“ VII (heroic, restrained)
     menu: { chords: [[50, 57, 62, 65], [46, 53, 58, 62], [41, 53, 57, 60], [48, 55, 60, 64]], bar: 6, cutoff: 900, gain: 0.05, type: 'sawtooth' },
     // E lydian, airy and high
     jupiter: { chords: [[52, 59, 64, 68, 70], [50, 57, 62, 66, 69], [52, 59, 63, 68, 71], [47, 54, 59, 63, 66]], bar: 8, cutoff: 1500, gain: 0.035, type: 'triangle' },
@@ -615,10 +674,27 @@ class MusicDirector {
 
   constructor(private ctx: AudioContext, bus: GainNode, verb: GainNode, private noise: AudioBuffer, private samples: Map<string, AudioBuffer>) {
     this.out = ctx.createGain();
-    this.out.connect(bus);
+    this.focusFilter = ctx.createBiquadFilter();
+    this.focusFilter.type = 'lowpass';
+    this.focusFilter.frequency.value = 20000;
+    this.out.connect(this.focusFilter).connect(bus);
+    // reverb only for the synth score (recorded tracks already have their own space)
+    this.synthOut = ctx.createGain();
+    this.synthOut.connect(this.out);
     const send = ctx.createGain();
     send.gain.value = 0.9;
-    this.out.connect(send).connect(verb);
+    this.synthOut.connect(send).connect(verb);
+    // CC0 score tracks (public/audio/music), streamed through <audio> so long tracks are not decoded into memory.
+    this.ready = fetch('/audio/music/manifest.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m: { files?: Record<string, string> } | null) => { for (const [k, f] of Object.entries(m?.files ?? {})) this.tracks.set(k, '/audio/music/' + f); })
+      .catch(() => undefined);
+  }
+  private synthOut: GainNode;
+
+  setFocus(v: number) {
+    const f = 20000 * Math.pow(700 / 20000, 1 - Math.max(0, Math.min(1, v)));
+    this.focusFilter.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.35);
   }
 
   setIntensity(v: number) { this.intensity = Math.max(0, Math.min(1, v)); }
@@ -629,17 +705,34 @@ class MusicDirector {
     this.state = state;
     const t = this.ctx.currentTime;
     // crossfade: fade the old layer while the new one starts on the next bar
-    if (this.file) { const f = this.file; f.g.gain.setTargetAtTime(0, t, 0.8); setTimeout(() => f.src.stop(), 4000); this.file = null; }
+    if (this.file) { const f = this.file; f.g.gain.setTargetAtTime(0, t, state === 'none' ? 0.6 : 0.9); setTimeout(() => { f.el.pause(); f.el.removeAttribute('src'); f.el.load(); }, 4500); this.file = null; }
     this.out.gain.cancelScheduledValues(t);
     this.out.gain.setTargetAtTime(state === 'none' ? 0 : 1, t, state === 'none' ? 0.8 : 0.3);
     clearInterval(this.timer);
     if (state === 'none') return;
-    const file = this.samples.get(`music_${state}`);
+    void this.ready.then(() => { if (this.state === state) this.startTrack(state); });
+  }
+
+  private startTrack(state: Exclude<MusicState, 'none'>) {
+    const t = this.ctx.currentTime;
+    const url = this.tracks.get(state);
+    if (url) {
+      const el = new Audio(url);
+      el.loop = state !== 'triumph';
+      el.preload = 'auto';
+      const g = this.ctx.createGain();
+      g.gain.value = 0;
+      g.gain.setTargetAtTime(1, t, state === 'tension' || state === 'triumph' ? 0.25 : 1.2);
+      this.ctx.createMediaElementSource(el).connect(g).connect(this.out);
+      void el.play().catch(() => undefined);
+      this.file = { el, g };
+      return;
+    }
+    const file = this.samples.get('music_' + state);
     if (file) {
       const src = this.ctx.createBufferSource(); src.buffer = file; src.loop = state !== 'triumph';
       const g = this.ctx.createGain(); g.gain.value = 0; g.gain.setTargetAtTime(0.9, t, 1);
       src.connect(g).connect(this.out); src.start();
-      this.file = { src, g };
       return;
     }
     this.bar = 0;
@@ -673,7 +766,7 @@ class MusicDirector {
     g.gain.linearRampToValueAtTime(gain, t + att);
     g.gain.setValueAtTime(gain, t + dur);
     g.gain.linearRampToValueAtTime(0.0001, end);
-    lp.connect(g).connect(this.out);
+    lp.connect(g).connect(this.synthOut);
     for (const n of notes) for (const det of [-7, 6]) {
       const o = ctx.createOscillator(); o.type = type; o.frequency.value = midi(n); o.detune.value = det;
       o.connect(lp); o.start(t); o.stop(end + 0.05);
@@ -681,7 +774,7 @@ class MusicDirector {
     // sub
     const sub = ctx.createOscillator(); sub.frequency.value = midi(notes[0] - 12);
     const sg = ctx.createGain(); sg.gain.setValueAtTime(0.0001, t); sg.gain.linearRampToValueAtTime(gain * 0.9, t + att); sg.gain.linearRampToValueAtTime(0.0001, end);
-    sub.connect(sg).connect(this.out); sub.start(t); sub.stop(end + 0.05);
+    sub.connect(sg).connect(this.synthOut); sub.start(t); sub.stop(end + 0.05);
   }
 
   /** Driving 8th-note ostinato on the root (filter opens with intensity). */
@@ -694,11 +787,11 @@ class MusicDirector {
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 5;
       lp.frequency.setValueAtTime(300 + this.intensity * 1600, at); lp.frequency.exponentialRampToValueAtTime(120, at + step * 0.9);
       const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(0.06 * accent, at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, at + step * 0.95);
-      o.connect(lp).connect(g).connect(this.out); o.start(at); o.stop(at + step);
+      o.connect(lp).connect(g).connect(this.synthOut); o.start(at); o.stop(at + step);
       if (this.intensity > 0.55 && i % 2 === 1) {
         const h = ctx.createOscillator(); h.type = 'square'; h.frequency.value = midi(root + 24 + (i % 4 === 3 ? 3 : 0));
         const hg = ctx.createGain(); hg.gain.setValueAtTime(0.0001, at); hg.gain.linearRampToValueAtTime(0.012 * this.intensity, at + 0.01); hg.gain.exponentialRampToValueAtTime(0.0001, at + step * 0.8);
-        h.connect(hg).connect(this.out); h.start(at); h.stop(at + step);
+        h.connect(hg).connect(this.synthOut); h.start(at); h.stop(at + step);
       }
     }
   }
@@ -710,11 +803,11 @@ class MusicDirector {
       const at = t + h * dur, big = h === 0 ? 1 : 0.6;
       const o = this.ctx.createOscillator(); o.frequency.setValueAtTime(90, at); o.frequency.exponentialRampToValueAtTime(38, at + 0.5);
       const g = this.ctx.createGain(); g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(0.26 * big, at + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.8);
-      o.connect(g).connect(this.out); o.start(at); o.stop(at + 0.9);
+      o.connect(g).connect(this.synthOut); o.start(at); o.stop(at + 0.9);
       const n = this.ctx.createBufferSource(); n.buffer = this.noise;
       const f = this.ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 400;
       const ng = this.ctx.createGain(); ng.gain.setValueAtTime(0.18 * big, at); ng.gain.exponentialRampToValueAtTime(0.0001, at + 0.2);
-      n.connect(f).connect(ng).connect(this.out); n.start(at, Math.random()); n.stop(at + 0.25);
+      n.connect(f).connect(ng).connect(this.synthOut); n.start(at, Math.random()); n.stop(at + 0.25);
     }
   }
 }

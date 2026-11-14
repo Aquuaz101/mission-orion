@@ -1,0 +1,23 @@
+{
+  "files": {
+    "ui_hover": "ui_hover.mp3",
+    "ui_click": "ui_click.mp3",
+    "ui_confirm": "ui_confirm.mp3",
+    "ui_back": "ui_back.mp3",
+    "ui_launch": "ui_launch.mp3",
+    "braam": "braam.mp3",
+    "impact": "impact.mp3",
+    "latch_clank": "latch_clank.mp3",
+    "alarm": "alarm.mp3",
+    "objective": "objective.mp3",
+    "success": "success.mp3",
+    "riser": "riser.mp3",
+    "beacon": "beacon.mp3",
+    "amb_storm": "amb_storm.mp3",
+    "rover_motor": "rover_motor.mp3",
+    "rover_gravel": "rover_gravel.mp3",
+    "amb_mars": "amb_mars.mp3",
+    "rover_drill": "rover_drill.mp3",
+    "rover_servo": "rover_servo.mp3"
+  }
+}

@@ -5,7 +5,7 @@
  *   ELEVENLABS_API_KEY=...  npm run gen:audio            # voice first, then sound effects, then music
  *   npm run gen:audio -- --dry                            # list every line + character count, no API calls
  *   npm run gen:audio -- --only=voice|sfx|music           # one category
- *   npm run gen:audio -- --voice=<voice_id>               # different ACE voice (default: Daniel, British)
+ *   npm run gen:audio -- --voice=<voice_id>               # different ACE voice (default: George, British)
  *   npm run gen:audio -- --force                          # regenerate files that already exist
  *
  * The key can also live in .env.local (ELEVENLABS_API_KEY=...), which is git-ignored.
@@ -22,24 +22,42 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? true]; }));
 const API = 'https://api.elevenlabs.io/v1';
 
-// Daniel: a calm, refined British male voice from ElevenLabs' default set (usable on the free plan).
-const VOICE_ID = args.voice || process.env.ACE_VOICE_ID || 'onwK4e9ZLuTAKqWW03F9';
-const TTS_MODEL = args.model || 'eleven_multilingual_v2';
+// George: warm, natural British male voice from ElevenLabs' default set (usable on the free plan).
+const VOICE_ID = args.voice || process.env.ACE_VOICE_ID || 'JBFqnCBsd6RMkjVDRZzb';
+// v4 turbo: ElevenLabs' most emotive model, half the credit cost; understands [emotion] cue tags.
+const TTS_MODEL = args.model || 'eleven_v4_turbo';
+const COST = TTS_MODEL.includes('turbo') || TTS_MODEL.includes('flash') ? 0.5 : 1;
+/** Delivery → voice settings. Lower stability = more expressive. ACE stays controlled even when urgent. */
+const DELIVERY = {
+  calm: { stability: 0.55, similarity_boost: 0.8, style: 0.15, use_speaker_boost: true, speed: 0.98 },
+  warm: { stability: 0.48, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true, speed: 0.97 },
+  tense: { stability: 0.4, similarity_boost: 0.8, style: 0.38, use_speaker_boost: true, speed: 1.0 },
+  urgent: { stability: 0.34, similarity_boost: 0.8, style: 0.48, use_speaker_boost: true, speed: 1.05 },
+};
+const spoken = (l) => (l.tone ? `[${l.tone}] ${l.text}` : l.text);
 
 const ACE_DIR = path.join(ROOT, 'public/audio/ace');
 const SFX_DIR = path.join(ROOT, 'public/audio/sfx');
 
-/** Sound effects in priority order. loop = seamless loop (beds / motors). */
+/** Sound effects in priority order (UI first, then the big cinematic moments). loop = seamless loop. */
 const SFX = [
-  { name: 'amb_storm', dur: 10, loop: true, text: 'Violent dust storm on a desert planet, roaring wind, fine sand blasting against a metal hull, continuous, loopable, no music' },
-  { name: 'braam', dur: 4, text: 'Cinematic movie trailer braam, huge low distorted brass hit with deep sub boom and long dark tail' },
+  { name: 'ui_hover', dur: 0.5, text: 'Very soft subtle futuristic military interface tick, tiny and clean' },
+  { name: 'ui_click', dur: 0.5, text: 'Crisp futuristic military menu select click, punchy, clean' },
+  { name: 'ui_confirm', dur: 0.8, text: 'Futuristic military menu confirm sound, short rising digital tone with soft whoosh' },
+  { name: 'ui_back', dur: 0.5, text: 'Futuristic military menu back sound, short falling digital tone' },
+  { name: 'ui_launch', dur: 2.5, text: 'Cinematic mission launch transition, deep whoosh into a heavy sub boom impact' },
+  { name: 'braam', dur: 3.5, text: 'Cinematic movie trailer braam, huge low distorted brass hit with deep sub boom and dark tail' },
   { name: 'impact', dur: 2, text: 'Cinematic deep impact hit, big taiko drum and sub boom, short reverb tail' },
+  { name: 'latch_clank', dur: 1.2, text: 'Heavy steel clamp locking shut, mechanical clank and latch, metallic ring' },
+  { name: 'alarm', dur: 2.5, text: 'Spacecraft emergency alarm, urgent two-tone electronic klaxon, sci-fi' },
+  { name: 'objective', dur: 1.2, text: 'Military game objective updated notification, short tense synth sting' },
+  { name: 'success', dur: 1.5, text: 'Bright sci-fi mission success chime, short and uplifting' },
+  { name: 'riser', dur: 3, text: 'Cinematic tension riser, rising whoosh and strings building to a sudden peak' },
+  { name: 'beacon', dur: 1, text: 'Single electronic distress beacon ping, sonar-like, clean' },
+  { name: 'amb_storm', dur: 8, loop: true, text: 'Violent dust storm on a desert planet, roaring wind, fine sand blasting against a metal hull, continuous, loopable, no music' },
   { name: 'rover_motor', dur: 5, loop: true, text: 'Electric rover drive motors running steadily, smooth gear whine and low mechanical hum, loopable, no voices' },
   { name: 'rover_gravel', dur: 5, loop: true, text: 'Heavy rover wheels rolling slowly over gravel and fine sand, crunching and grinding, loopable' },
   { name: 'amb_mars', dur: 12, loop: true, text: 'Thin lonely wind across an empty rocky alien desert, soft howl, sparse, eerie, loopable, no music' },
-  { name: 'riser', dur: 3, text: 'Cinematic tension riser, rising whoosh and strings building to a sudden peak' },
-  { name: 'latch_clank', dur: 1.5, text: 'Heavy steel clamp locking shut, mechanical clank and latch, metallic ring' },
-  { name: 'alarm', dur: 2.5, text: 'Spacecraft emergency alarm, urgent two-tone electronic klaxon, sci-fi' },
   { name: 'rover_drill', dur: 2, text: 'Robotic rotary percussive drill coring into hard rock, grinding' },
   { name: 'rover_servo', dur: 1.5, text: 'Robotic arm servo motors moving smoothly, precise mechanical whir' },
   { name: 'winch', dur: 2, text: 'Small electric winch spooling out steel cable, ratcheting mechanism' },
@@ -49,11 +67,6 @@ const SFX = [
   { name: 'radio_in', dur: 0.5, text: 'Very short radio transmission open click with soft squelch' },
   { name: 'radio_out', dur: 0.5, text: 'Very short radio transmission close click' },
   { name: 'amb_space', dur: 12, loop: true, text: 'Deep space station ambience, calm low drone and soft electronic hum, loopable' },
-  { name: 'success', dur: 1.5, text: 'Bright sci-fi mission success chime, short and uplifting' },
-  { name: 'ui_click', dur: 0.5, text: 'Crisp futuristic user interface click' },
-  { name: 'ui_confirm', dur: 0.7, text: 'Futuristic user interface confirm sound, short rising tone' },
-  { name: 'ui_back', dur: 0.5, text: 'Futuristic user interface back sound, short falling tone' },
-  { name: 'ui_hover', dur: 0.5, text: 'Very soft subtle futuristic interface tick' },
 ];
 
 /** Music (needs a paid ElevenLabs plan). */
@@ -111,8 +124,9 @@ try {
 
 const totalChars = catalog.reduce((s, l) => s + l.text.length, 0);
 if (args.dry) {
-  for (const l of catalog) console.log(`P${l.priority} ${l.id} [${l.where}${l.mood === 'alert' ? ', alert' : ''}] ${l.text}`);
-  console.log(`\n${catalog.length} lines · ${totalChars} characters (P1: ${catalog.filter((l) => l.priority === 1).reduce((s, l) => s + l.text.length, 0)})`);
+  for (const l of catalog) console.log(`P${l.priority} ${l.id} [${l.where}·${l.delivery}] ${spoken(l)}`);
+  const billed = catalog.reduce((s, l) => s + spoken(l).length, 0);
+  console.log(`\n${catalog.length} lines · ${totalChars} characters (${billed} with cue tags ≈ ${Math.ceil(billed * COST)} credits on ${TTS_MODEL})`);
   console.log(`${SFX.length} sound effects · ${MUSIC.length} music tracks (music needs a paid plan)`);
   process.exit(0);
 }
@@ -139,14 +153,14 @@ if (!only || only === 'voice') {
     const file = `${l.id}.mp3`, dest = path.join(ACE_DIR, file);
     if (!args.force && fs.existsSync(dest)) { man.lines[l.id] = file; report.voice.done.push(l.id); continue; }
     if (stopped) { report.voice.missing.push(l); continue; }
+    const text = spoken(l), need = Math.ceil(text.length * COST) + 5;
     const left = await remaining(key);
-    if (left && left.left < l.text.length + 5) { stop(`out of credits (${left.left} left, next line needs ${l.text.length})`); report.voice.missing.push(l); continue; }
+    if (left && left.left < need) { stop(`out of credits (${left.left} left, next line needs ${need})`); report.voice.missing.push(l); continue; }
     try {
-      const alert = l.mood === 'alert';
       const audio = await call(key, `/text-to-speech/${VOICE_ID}?output_format=mp3_44100_128`, {
-        text: l.text,
+        text,
         model_id: TTS_MODEL,
-        voice_settings: { stability: alert ? 0.38 : 0.55, similarity_boost: 0.8, style: alert ? 0.35 : 0.12, use_speaker_boost: true, speed: alert ? 1.04 : 0.98 },
+        voice_settings: DELIVERY[l.delivery] ?? DELIVERY.calm,
       });
       fs.mkdirSync(ACE_DIR, { recursive: true });
       fs.writeFileSync(dest, audio);
@@ -209,6 +223,18 @@ if (!only || only === 'music') {
 }
 
 // ───────────────────────────────────────────── report
+// categories skipped this run: count what already exists on disk
+if (only && only !== 'voice') {
+  const have = new Set(Object.keys(readJson(path.join(ACE_DIR, 'manifest.json'), { lines: {} }).lines));
+  for (const l of catalog) {
+    if (have.has(l.id) && fs.existsSync(path.join(ACE_DIR, `${l.id}.mp3`))) report.voice.done.push(l.id);
+    else report.voice.missing.push(l);
+  }
+}
+if (only && only !== 'sfx') {
+  const have = readJson(path.join(SFX_DIR, 'manifest.json'), { files: {} }).files;
+  for (const s of SFX) (have[s.name] ? report.sfx.done : report.sfx.missing).push(s.name);
+}
 const missingChars = report.voice.missing.reduce((s, l) => s + l.text.length, 0);
 const summary = {
   generatedAt: new Date().toISOString(),

@@ -195,6 +195,7 @@ export class JupiterMission implements Mission {
     this.objectiveStart = performance.now();
     this.wasReady = false;
     this.paintObjective();
+    if (i > 0) this.app.sfx.objective();
     void this.app.commander.say(this.objective.start);
   }
 
@@ -521,6 +522,8 @@ export class JupiterMission implements Mission {
   private showReport() {
     const { app } = this;
     app.input.pointerEnabled = false;
+    app.sfx.scopeMotors(0, 0, 0);
+    app.sfx.setMusic('triumph');
     app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 01 complete', subtitle: 'Observation report on the main screen' });
     const figs = this.captures.map((c, i) => {
       const o = OBJECTIVES.find((x) => x.id === c.id)!;

@@ -343,6 +343,11 @@ export class MarsMission implements Mission {
     if (this.disposed || this.phase !== 'explore') return;
     const st = this.stage!;
     this.phase = 'emergency-find';
+    // a beat of silence, then the hit
+    this.app.sfx.silence(900);
+    this.app.sfx.setMusic('none');
+    await wait(750);
+    if (this.disposed) return;
     this.app.sfx.braam();
     this.app.sfx.alarm(3);
     this.app.sfx.setMusic('tension', 0.15);
@@ -464,6 +469,7 @@ export class MarsMission implements Mission {
     this.locked = false;
     st.addSpecimen('s3', 'sedimentary', this.pois.get('s3')!.pos);
     this.setTarget('s3');
+    setTimeout(() => { if (!this.disposed && this.phase === 'final') this.app.sfx.setMusic('mars'); }, 20000);
     void this.app.commander.say(LINES.sample3);
   }
 
@@ -599,6 +605,15 @@ export class MarsMission implements Mission {
         void this.app.commander.say([LINES.stormFact, LINES.mmrtg]);
       }
     }
+    if (this.phase === 'emergency-find' && !st.inCutscene) {
+      const now = performance.now();
+      if (now - this.lastBeacon > 1800) {
+        this.lastBeacon = now;
+        const a = st.ares.group.position, d = this.distTo(a);
+        const cam = st.forward, bearing = Math.atan2(a.x - st.roverPos.x, a.z - st.roverPos.z) - Math.atan2(cam.x, cam.z);
+        this.app.sfx.beacon(-Math.sin(bearing), Math.min(1, Math.max(0.12, 1 - d / 340)) * 0.8);
+      }
+    }
     if (this.phase === 'emergency-find' && !this.flags.has('reveal') && this.distTo(st.ares.group.position) < 32) {
       this.flags.add('reveal');
       void this.revealCutscene();
@@ -656,6 +671,7 @@ export class MarsMission implements Mission {
     if (T < 10.5 && T > 0 && sec !== this.lastTick) { this.lastTick = sec; sfx.tick(true); }
   }
   private lastTick = -1;
+  private lastBeacon = 0;
 
   // ─────────────────────────────────────────── HUD
   private buildHud() {
@@ -731,6 +747,7 @@ export class MarsMission implements Mission {
     const [t, s] = this.objectiveText();
     const el = $(this.hud, '.obj-text');
     if (el.textContent !== t) {
+      if (el.textContent && this.phase !== 'complete') this.app.sfx.objective();
       el.textContent = t;
       const blk = $(this.hud, '.obj-block');
       blk.classList.remove('new');

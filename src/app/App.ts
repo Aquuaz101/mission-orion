@@ -103,6 +103,8 @@ export class App {
     // Hubble in silhouette against the orbital sunrise (sits between camera and Sun)
     if (hubble) this.space.showModel(hubble.clone(true), 3.4, { silhouette: true, position: new THREE.Vector3(3.9, -0.05, 14.2) });
     this.link.send({ t: 'layout', layout: 'lobby', title: 'Controller linked', subtitle: 'Follow the main screen' });
+    this.sfx.setMusic('menu');
+    this.sfx.setMusicFocus(1);
     void this.screens.show(codMainMenu(this.sfx, (a) => this.onMenu(a)));
   }
 
@@ -168,11 +170,12 @@ export class App {
 
     let launching = false;
     const ui = codMissionSelect(this.sfx, {
-      onFocus: (m) => stage.setFocus(m ? (m.id === 'iss' ? 'earth' : (m.id as 'jupiter' | 'mars')) : 'overview'),
+      onFocus: (m) => { stage.setFocus(m ? (m.id === 'iss' ? 'earth' : (m.id as 'jupiter' | 'mars')) : 'overview'); this.sfx.setMusicFocus(m ? 1 : 0.5); },
       onLaunch: async (m) => {
         if (launching) return;
         launching = true;
         this.commander.clear();
+        if (this.missionAvailable(m.id)) { this.sfx.launch(); this.sfx.setMusicFocus(1); }
         await stage.dive();
         void this.launch(m.id);
       },
@@ -185,6 +188,8 @@ export class App {
       onBack: () => { if (!launching) { this.commander.clear(); this.showMenu(); } },
     });
     void this.screens.show(ui.el);
+    this.sfx.setMusic('menu');
+    this.sfx.setMusicFocus(0.5);
 
     const offTick = this.engine.onTick(() => ui.setLabels(stage.labels(window.innerWidth, window.innerHeight)));
     const offPhone = this.input.onPress((id) => {
@@ -207,7 +212,6 @@ export class App {
     }
     if (this.mission) return;
     this.commander.clear();
-    this.sfx.setMusic('none');
     const Ctor = await load();
     const mission = new Ctor(this);
     this.mission = mission;
@@ -236,6 +240,7 @@ export class App {
     this.mission.setPaused(true);
     this.commander.clear();
     this.sfx.back();
+    this.sfx.setPaused(true);
     const other = this.mode === 'phone' ? 'device' : 'phone';
     const el = html(`
       <div class="pause-backdrop">
@@ -284,6 +289,7 @@ export class App {
     this.pauseEl = null;
     el.classList.remove('in');
     setTimeout(() => el.remove(), 250);
+    this.sfx.setPaused(false);
     this.mission?.setPaused(false);
   }
 
@@ -336,7 +342,7 @@ export class App {
       const btns = $$(el, `${sel} button`);
       const paint = (v: string) => btns.forEach((b) => b.classList.toggle('on', b.dataset.v === v));
       paint(current);
-      btns.forEach((b) => b.addEventListener('click', () => { this.sfx.click(); apply(b.dataset.v!); paint(b.dataset.v!); }));
+      btns.forEach((b) => b.addEventListener('click', () => { this.sfx.tab(); apply(b.dataset.v!); paint(b.dataset.v!); }));
     };
     seg('.voice', this.commander.voiceEnabled ? 'on' : 'off', (v) => {
       this.commander.setVoiceEnabled(v === 'on');

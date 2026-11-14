@@ -282,7 +282,8 @@ export function creditsHtml() {
       <h4>Data &amp; imagery</h4>
       <p class="muted">NASA, NASA/JPL-Caltech, University of Arizona (HiRISE), USGS Astrogeology Science Center, Space Science Institute, NASA Earth Observatory, NASA 3D Resources. Use of NASA data does not imply endorsement by NASA.</p>
       <h4>Built with</h4>
-      <p class="muted">three.js · Vite · TypeScript · Web Audio · Web Speech. ACE's voice and sound effects generated with ElevenLabs (AI voice, not a real person); fallback sound and the adaptive score are synthesised in the browser. All audio ships with the game and works offline.</p>
+      <p class="muted">three.js · Vite · TypeScript · Web Audio · Web Speech. ACE's voice (ElevenLabs "George", AI-generated) and sound effects generated with ElevenLabs; fallback sounds are synthesised in the browser. All audio ships with the game and works offline.</p>
+      <p class="muted">Music (CC0 / public domain, via OpenGameArt.org): “Epic Main Menu Theme” by CleytonKauffman · “Starfield Romance” by Yoiyami · “Outer Space Loop” by wipics · “Battle Theme” by Wolfgang_ · “Determined Pursuit” by Emma_MA · “Fantasy Orchestral Theme &amp; Emotional Piano” by glitchart (Joth vs extenz).</p>
     </div>`;
 }
 
