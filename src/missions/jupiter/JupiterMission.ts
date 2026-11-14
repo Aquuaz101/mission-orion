@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import './jupiter.css';
 import type { App } from '../../app/App';
 import type { Mission, MissionExit } from '../types';
 import { JupiterStage, TIMELAPSE, RJ_KM } from './JupiterStage';

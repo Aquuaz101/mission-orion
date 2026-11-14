@@ -232,7 +232,10 @@ export class SpaceStage implements Stage {
   private showcaseLights: THREE.Light[] = [];
 
   /** Display a spacecraft model (e.g. Hubble) in front of the briefing camera, normalised to ~size units. */
-  showModel(obj: THREE.Object3D | null, size = 4.2) {
+  private showcaseSpin = true;
+
+  showModel(obj: THREE.Object3D | null, size = 4.2, opts: { spin?: boolean; faceDir?: THREE.Vector3 } = {}) {
+    this.showcaseSpin = opts.spin ?? true;
     if (this.showcase) {
       this.scene.remove(this.showcase);
       this.showcase = null;
@@ -258,7 +261,11 @@ export class SpaceStage implements Stage {
     holder.add(obj);
     pivot.add(holder);
     pivot.position.copy(SHOWCASE_POS);
-    pivot.rotation.set(0.25, -0.6, 0.15);
+    if (opts.faceDir) {
+      // turn the object so its local faceDir points at the briefing camera
+      const toCam = SHOTS.briefing.pos.clone().sub(SHOWCASE_POS).normalize();
+      pivot.quaternion.setFromUnitVectors(opts.faceDir.clone().normalize(), toCam);
+    } else pivot.rotation.set(0.25, -0.6, 0.15);
     this.showcase = pivot;
     this.scene.add(pivot);
   }
@@ -294,7 +301,7 @@ export class SpaceStage implements Stage {
 
     this.earth.rotation.y += dt * 0.006;
     if (this.showcase) {
-      this.showcase.rotation.y += dt * 0.12;
+      if (this.showcaseSpin) this.showcase.rotation.y += dt * 0.12;
       this.showcase.position.y = SHOWCASE_POS.y + Math.sin(t * 0.4) * 0.08;
     }
     this.orionHighlight += (this.orionTarget - this.orionHighlight) * (1 - Math.exp(-dt * 1.5));

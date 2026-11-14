@@ -8,6 +8,7 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import './styles/base.css';
 import './styles/screens.css';
+import './styles/missions.css';
 import { App } from './app/App';
 
 const app = new App();

@@ -16,6 +16,7 @@ export type Quality = 'low' | 'medium' | 'high';
 /** Mission modules are code-split and loaded on launch. Add new missions here. */
 const MISSION_LOADERS: Record<string, () => Promise<new (app: App) => Mission>> = {
   jupiter: async () => (await import('../missions/jupiter/JupiterMission')).JupiterMission,
+  mars: async () => (await import('../missions/mars/MarsMission')).MarsMission,
 };
 
 /** Owns the shared systems and drives the menu flow between missions. */
