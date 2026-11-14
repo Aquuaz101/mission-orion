@@ -1,0 +1,110 @@
+html, body { touch-action: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+body {
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(79, 216, 255, 0.10), transparent 60%),
+    linear-gradient(180deg, #071022, #04070d 70%);
+}
+#app { position: fixed; inset: 0; display: flex; flex-direction: column; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+
+.c-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--c-line); }
+.c-brand { font-family: var(--f-display); font-weight: 500; letter-spacing: 0.2em; font-size: 13px; }
+.c-brand b { color: var(--c-cyan); }
+.c-status { display: flex; align-items: center; gap: 8px; font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--c-muted); }
+.c-status i { width: 8px; height: 8px; border-radius: 50%; background: var(--c-orange); }
+.c-status[data-s='linked'] { color: var(--c-green); }
+.c-status[data-s='linked'] i { background: var(--c-green); box-shadow: 0 0 10px var(--c-green); }
+.c-status[data-s='connecting'] i, .c-status[data-s='offline'] i, .c-status[data-s='waiting'] i { animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0.25; } }
+
+.c-main { position: relative; flex: 1; min-height: 0; padding: 14px 16px 16px; }
+.c-overlay { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: rgba(2, 5, 10, 0.82); backdrop-filter: blur(6px); }
+.c-overlay-box { text-align: center; color: var(--c-muted); font-size: 14px; }
+.spinner { width: 34px; height: 34px; margin: 0 auto 14px; border: 2px solid var(--c-line-strong); border-top-color: var(--c-cyan); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── PIN entry ─────────────────────────────────── */
+.pin-entry { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 8px; }
+.pin-entry h1 { margin: 6px 0; font-family: var(--f-display); font-weight: 400; font-size: 26px; }
+.pin-entry p { margin: 0; color: var(--c-muted); font-size: 14px; max-width: 300px; }
+.pin-input { margin: 18px 0 4px; width: 200px; padding: 12px; text-align: center; font-size: 34px; letter-spacing: 0.4em; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-line-strong); border-radius: 4px; color: var(--c-text); user-select: text; }
+.pin-input:focus { outline: none; border-color: var(--c-cyan); }
+.pin-error { color: var(--c-orange) !important; min-height: 20px; }
+
+/* ── Lobby ─────────────────────────────────────── */
+.lobby { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 6px; }
+.lobby h1 { margin: 14px 0 4px; font-family: var(--f-display); font-weight: 400; font-size: 24px; }
+.lobby p { margin: 0 0 14px; color: var(--c-muted); }
+.lobby-icon { width: 64px; height: 64px; border-radius: 50%; border: 1px solid var(--c-cyan); display: grid; place-items: center; box-shadow: 0 0 30px rgba(79, 216, 255, 0.25); }
+.lobby-icon span { width: 14px; height: 14px; border-radius: 50%; background: var(--c-green); box-shadow: 0 0 16px var(--c-green); }
+.lobby-missions { display: flex; flex-direction: column; gap: 10px; width: min(360px, 100%); }
+.m-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 16px 18px; text-align: left; background: var(--glass); border: 1px solid var(--c-line-strong); border-radius: 4px; }
+.m-tile span { font-size: 10px; letter-spacing: 0.2em; color: var(--c-cyan); }
+.m-tile b { font-family: var(--f-display); font-weight: 500; font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; }
+.m-tile:active { background: var(--c-cyan-soft); border-color: var(--c-cyan); }
+.m-tile.locked { opacity: 0.45; }
+.m-tile em { font-style: normal; font-size: 11px; color: var(--c-orange); }
+.skip { margin-top: 18px; }
+
+/* ── Shared mission HUD strip ──────────────────── */
+.hud-strip { display: flex; align-items: center; gap: 12px; font-size: 11px; letter-spacing: 0.08em; color: var(--c-muted); }
+.hud-strip .objective { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--c-text); }
+.c-main.alert .hud-strip .objective { color: var(--c-orange); }
+.mini { padding: 6px 10px; background: transparent; border: 1px solid var(--c-line); border-radius: 3px; color: var(--c-muted); font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.1em; }
+
+/* ── Joysticks ─────────────────────────────────── */
+.joy { position: relative; touch-action: none; }
+.joy .knob { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, 0.35), rgba(79, 216, 255, 0.25)); border: 1px solid rgba(79, 216, 255, 0.7); box-shadow: 0 0 24px rgba(79, 216, 255, 0.3); pointer-events: none; transition: transform 0.12s; }
+.joy.active .knob { transition: none; }
+.joy.fixed .ring { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--c-line-strong); background: radial-gradient(circle, rgba(79, 216, 255, 0.05), transparent 70%); }
+.joy.fixed .ring::after { content: ''; position: absolute; inset: 22%; border-radius: 50%; border: 1px dashed var(--c-line); }
+.joy-label { position: absolute; bottom: -22px; left: 0; right: 0; text-align: center; font-size: 10px; letter-spacing: 0.24em; color: var(--c-dim); }
+
+/* ── Jupiter: touch pad + instrument column ────── */
+.pad-layout { height: 100%; display: grid; grid-template-columns: 1fr minmax(170px, 34%); grid-template-rows: auto 1fr; gap: 12px 14px; }
+.pad-layout .hud-strip { grid-column: 1 / -1; }
+.touchpad { border: 1px solid var(--c-line-strong); border-radius: 6px; background: rgba(79, 216, 255, 0.03); overflow: hidden; }
+.touchpad .knob { opacity: 0; width: 54px; height: 54px; }
+.touchpad.active .knob { opacity: 1; }
+.pad-grid { position: absolute; inset: 0; background-image: linear-gradient(var(--c-line) 1px, transparent 1px), linear-gradient(90deg, var(--c-line) 1px, transparent 1px); background-size: 40px 40px; opacity: 0.35; pointer-events: none; }
+.pad-hint { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--c-dim); pointer-events: none; }
+.touchpad.active .pad-hint { opacity: 0; }
+.side { display: flex; flex-direction: column; gap: 14px; justify-content: space-between; }
+.zoom-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.zoom-row .label { font-size: 10px; letter-spacing: 0.2em; color: var(--c-muted); }
+.round { width: 58px; height: 58px; border-radius: 50%; background: var(--glass); border: 1px solid var(--c-line-strong); font-size: 28px; font-weight: 300; }
+.round.pressed { background: var(--c-cyan-soft); border-color: var(--c-cyan); }
+.sl { display: flex; flex-direction: column; gap: 6px; font-size: 10px; letter-spacing: 0.2em; color: var(--c-muted); }
+.sl input { width: 100%; height: 36px; accent-color: var(--c-cyan); }
+.capture { flex: 1; min-height: 80px; max-height: 140px; border-radius: 10px; border: 1px solid var(--c-cyan); background: radial-gradient(circle at 50% 40%, rgba(79, 216, 255, 0.28), rgba(79, 216, 255, 0.06)); font-family: var(--f-display); font-size: 16px; letter-spacing: 0.22em; color: #fff; }
+.capture.pressed { background: rgba(79, 216, 255, 0.5); transform: scale(0.98); }
+
+/* ── Mars: twin sticks ─────────────────────────── */
+.drive-layout { height: 100%; display: grid; grid-template-columns: 1fr auto 1fr; grid-template-rows: auto 1fr; gap: 10px; align-items: center; justify-items: center; }
+.drive-layout .hud-strip { grid-column: 1 / -1; width: 100%; }
+.drive-layout .joy.fixed { width: min(38vw, 46vh, 200px); aspect-ratio: 1; }
+.center { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.compass { position: relative; width: 74px; height: 74px; border-radius: 50%; border: 1px solid var(--c-line-strong); display: grid; place-items: center; }
+.compass .arrow { position: absolute; inset: 8px; transition: transform 0.2s; }
+.compass .arrow::before { content: ''; position: absolute; left: 50%; top: 0; transform: translateX(-50%); border: 9px solid transparent; border-bottom: 16px solid var(--c-orange); border-top: 0; }
+.compass .dist { font-size: 11px; color: var(--c-text); }
+.compass.off { opacity: 0.3; }
+.compass.off .arrow { display: none; }
+.interact { width: 112px; height: 112px; border-radius: 50%; border: 1px solid var(--c-cyan); background: radial-gradient(circle, rgba(79, 216, 255, 0.3), rgba(79, 216, 255, 0.05)); color: #fff; font-family: var(--f-display); font-size: 12px; letter-spacing: 0.14em; padding: 8px; transition: opacity 0.2s, transform 0.1s; }
+.interact.disabled { opacity: 0.3; border-color: var(--c-line-strong); background: transparent; }
+.interact.pressed { transform: scale(0.95); background: rgba(79, 216, 255, 0.5); }
+.batt { display: flex; align-items: center; gap: 6px; }
+.batt i { width: 46px; height: 12px; border: 1px solid var(--c-line-strong); border-radius: 2px; padding: 1px; display: block; }
+.batt b { display: block; height: 100%; background: var(--c-green); width: 100%; transition: width 0.3s; }
+.batt.low b { background: var(--c-red); }
+.batt em { font-style: normal; color: var(--c-text); min-width: 34px; }
+.timer { color: var(--c-orange); font-size: 14px; }
+
+/* Portrait phones: stack the Jupiter layout */
+@media (orientation: portrait) {
+  .pad-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+  .side { flex-direction: column; }
+  .capture { min-height: 70px; }
+  .drive-layout { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto 1fr; }
+  .drive-layout .center { grid-column: 1 / -1; grid-row: 2; flex-direction: row; }
+  .drive-layout .joy.fixed { width: min(42vw, 180px); }
+}

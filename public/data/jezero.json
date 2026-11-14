@@ -1,0 +1,9 @@
+{
+  "source": "USGS Astrogeology / NASA MRO HiRISE controlled DTM DTEEC_048842_1985_048908_1985_U01 (Jezero crater delta front)",
+  "credit": "NASA/JPL-Caltech/University of Arizona/USGS",
+  "resolution": 768,
+  "sizeMeters": 1561.5295417647826,
+  "minElevation": -2557.08740234375,
+  "maxElevation": -2473.153076171875,
+  "ortho": true
+}

@@ -1,0 +1,47 @@
+.commander {
+  position: fixed;
+  left: 50%;
+  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  width: min(760px, calc(100vw - 32px));
+  transform: translate(-50%, 18px);
+  opacity: 0;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px;
+  align-items: center;
+  padding: 16px 20px 16px 16px;
+  background: linear-gradient(90deg, rgba(6, 12, 24, 0.92), rgba(8, 16, 30, 0.78));
+  border: 1px solid var(--c-line);
+  border-left: 2px solid var(--c-cyan);
+  border-radius: var(--radius);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: opacity 0.45s var(--ease-out), transform 0.45s var(--ease-out), border-color 0.3s;
+  z-index: 40;
+}
+.commander.show { opacity: 1; transform: translate(-50%, 0); }
+.commander.alert { border-left-color: var(--c-orange); background: linear-gradient(90deg, rgba(40, 14, 4, 0.92), rgba(24, 10, 6, 0.8)); }
+
+.cmd-badge { display: flex; align-items: center; gap: 12px; padding-right: 18px; border-right: 1px solid var(--c-line); }
+.cmd-name { font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.2em; color: var(--c-cyan); }
+.commander.alert .cmd-name { color: var(--c-orange); }
+.cmd-role { font-size: 11px; color: var(--c-muted); margin-top: 3px; white-space: nowrap; }
+
+.cmd-wave { display: flex; gap: 3px; align-items: center; height: 28px; width: 28px; justify-content: center; }
+.cmd-wave i { width: 3px; height: 6px; background: var(--c-cyan); border-radius: 2px; opacity: 0.55; }
+.commander.alert .cmd-wave i { background: var(--c-orange); }
+.commander.speaking .cmd-wave i { animation: wave 0.9s ease-in-out infinite; opacity: 1; }
+.cmd-wave i:nth-child(2) { animation-delay: 0.12s !important; }
+.cmd-wave i:nth-child(3) { animation-delay: 0.24s !important; }
+.cmd-wave i:nth-child(4) { animation-delay: 0.36s !important; }
+.cmd-wave i:nth-child(5) { animation-delay: 0.48s !important; }
+@keyframes wave { 0%, 100% { height: 5px; } 50% { height: 22px; } }
+
+.cmd-text { font-size: 16px; line-height: 1.5; color: var(--c-text); min-height: 24px; }
+.cmd-skip { position: absolute; right: 12px; top: -26px; font-size: 11px; color: var(--c-dim); display: flex; gap: 6px; align-items: center; }
+
+@media (max-width: 640px) {
+  .commander { grid-template-columns: 1fr; gap: 10px; }
+  .cmd-badge { border-right: 0; padding-right: 0; }
+}
