@@ -6,7 +6,10 @@ import { Sfx } from '../core/Sfx';
 import { Commander } from '../core/Commander';
 import { SpaceStage } from '../stages/SpaceStage';
 import { ScreenHost, html, openModal, $, $$, wait } from '../ui/dom';
-import { loadingScreen, mainMenu, controlSelect, pairingScreen, missionSelect, howToPlayHtml, sourcesHtml, creditsHtml, type MenuAction } from '../ui/screens';
+import * as THREE from 'three';
+import { loadingScreen, controlSelect, pairingScreen, howToPlayHtml, sourcesHtml, creditsHtml } from '../ui/screens';
+import { codMainMenu, codMissionSelect, type CodMenuAction } from '../ui/codScreens';
+import { SelectStage } from '../stages/SelectStage';
 import { missionEntries, MISSIONS } from '../missions/registry';
 
 import type { Mission } from '../missions/types';
@@ -87,19 +90,28 @@ export class App {
   }
 
   // ───────────────────────────────────────────── menu flow
+  private modeChosen = false;
+  private selectStage: SelectStage | null = null;
+
   showMenu() {
+    this.engine.setStage(this.space);
     this.space.setShot('menu', 0.45);
     this.space.setOrionHighlight(0.6);
+    const hubble = this.assets.models.hubble?.scene;
+    // Hubble in silhouette against the orbital sunrise (sits between camera and Sun)
+    if (hubble) this.space.showModel(hubble.clone(true), 3.4, { silhouette: true, position: new THREE.Vector3(3.9, -0.05, 14.2) });
     this.link.send({ t: 'layout', layout: 'lobby', title: 'Controller linked', subtitle: 'Follow the main screen' });
-    void this.screens.show(mainMenu(this.sfx, (a) => this.onMenu(a)));
+    void this.screens.show(codMainMenu(this.sfx, (a) => this.onMenu(a)));
   }
 
-  private async onMenu(a: MenuAction) {
+  private async onMenu(a: CodMenuAction) {
     switch (a) {
       case 'start':
         return this.showControlSelect();
-      case 'howto':
-        return openModal('How to play', howToPlayHtml(), () => this.sfx.back());
+      case 'select':
+        return this.modeChosen ? this.showMissionSelect() : this.showControlSelect();
+      case 'controls':
+        return openModal('Controls', howToPlayHtml(), () => this.sfx.back());
       case 'settings':
         return openModal('Settings', this.settingsPanel(), () => this.sfx.back());
       case 'sources':
@@ -132,6 +144,7 @@ export class App {
 
   setMode(mode: ControlMode, announce = false) {
     this.input.mode = mode;
+    this.modeChosen = true;
     this.updateBadge();
     if (announce) {
       void this.commander.say(
@@ -145,18 +158,39 @@ export class App {
   }
 
   showMissionSelect() {
-    this.space.setShot('select', 0.5);
+    this.space.showModel(null);
+    if (!this.selectStage) this.selectStage = new SelectStage(this.assets, this.engine.renderer);
+    const stage = this.selectStage;
+    stage.reset();
+    stage.resize(window.innerWidth, window.innerHeight);
+    this.engine.setStage(stage);
     this.link.send({ t: 'layout', layout: 'lobby', title: 'Choose your mission', subtitle: 'Tap a mission to launch it', missions: missionEntries() });
-    const el = missionSelect(this.sfx, (id) => this.launch(id), () => { this.commander.clear(); this.showMenu(); });
-    void this.screens.show(el);
 
-    const offPhone = this.input.onPress((id) => {
-      if (!id.startsWith('mission:') || !el.isConnected) return;
-      const mid = id.slice(8);
-      const card = el.querySelector<HTMLElement>(`.mission[data-id="${mid}"]`);
-      card?.click();
+    let launching = false;
+    const ui = codMissionSelect(this.sfx, {
+      onFocus: (m) => stage.setFocus(m ? (m.id === 'iss' ? 'earth' : (m.id as 'jupiter' | 'mars')) : 'overview'),
+      onLaunch: async (m) => {
+        if (launching) return;
+        launching = true;
+        this.commander.clear();
+        await stage.dive();
+        void this.launch(m.id);
+      },
+      onTab: (t) => {
+        if (t === 'controls') void openModal('Controls', howToPlayHtml(), () => this.sfx.back());
+        if (t === 'settings') void openModal('Settings', this.settingsPanel(), () => this.sfx.back());
+        if (t === 'sources') void openModal('Mission data & sources', sourcesHtml(), () => this.sfx.back());
+        if (t === 'credits') void openModal('Credits', creditsHtml(), () => this.sfx.back());
+      },
+      onBack: () => { if (!launching) { this.commander.clear(); this.showMenu(); } },
     });
-    const watch = setInterval(() => { if (!el.isConnected) { offPhone(); clearInterval(watch); } }, 1000);
+    void this.screens.show(ui.el);
+
+    const offTick = this.engine.onTick(() => ui.setLabels(stage.labels(window.innerWidth, window.innerHeight)));
+    const offPhone = this.input.onPress((id) => {
+      if (id.startsWith('mission:') && ui.el.isConnected) (ui as unknown as { launchId: (id: string) => void }).launchId(id.slice(8));
+    });
+    const watch = setInterval(() => { if (!ui.el.isConnected) { offPhone(); offTick(); clearInterval(watch); } }, 500);
   }
 
   // ───────────────────────────────────────────── missions

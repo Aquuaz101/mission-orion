@@ -1,0 +1,93 @@
+/* ── Main menu: stacked bars, silhouette, wordmark top-right ────────────────── */
+.cod-menu { overflow: hidden; }
+.cod-haze {
+  position: absolute; inset: -10%; pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 45% at 18% 70%, rgba(150, 165, 190, 0.10), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 70% 30%, rgba(120, 140, 170, 0.08), transparent 70%),
+    linear-gradient(90deg, rgba(2, 4, 8, 0.86) 0%, rgba(2, 4, 8, 0.5) 30%, rgba(2, 4, 8, 0.05) 55%, transparent 70%);
+  animation: hazeDrift 26s ease-in-out infinite alternate;
+}
+@keyframes hazeDrift { to { transform: translate3d(3%, -2%, 0) scale(1.05); } }
+.cod-grain {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0.09; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 0.6s steps(3) infinite;
+}
+@keyframes grain { 33% { transform: translate(-3%, 2%); } 66% { transform: translate(2%, -3%); } }
+
+.cod-logo { position: absolute; top: clamp(28px, 7vh, 70px); right: clamp(28px, 5vw, 80px); text-align: right; }
+.cod-word {
+  font-family: var(--f-display); font-weight: 600; font-size: clamp(40px, 5.2vw, 76px); letter-spacing: 0.06em; line-height: 1;
+  background: linear-gradient(180deg, #ffffff 0%, #d9dee6 38%, #8c96a6 52%, #e7ebf0 70%, #9aa3b1 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.6)) drop-shadow(0 0 22px rgba(160, 200, 255, 0.12));
+}
+.cod-word em { font-style: normal; color: var(--c-cyan); -webkit-text-fill-color: var(--c-cyan); margin: 0 0.06em; }
+.cod-word b { font-weight: 600; }
+.cod-tag { margin-top: 10px; font-size: 12px; letter-spacing: 0.32em; text-transform: uppercase; color: #9fdcff; opacity: 0.85; }
+
+.cod-nav { position: absolute; left: 0; top: 50%; transform: translateY(-46%); width: min(440px, 52vw); display: flex; flex-direction: column; gap: 22px; }
+.cod-group { display: flex; flex-direction: column; gap: 6px; }
+.cod-item {
+  position: relative; display: block; width: 100%; height: 44px; padding: 0 26px 0 0; text-align: right; cursor: pointer;
+  border: 0; outline: none; color: #c9d0da; font-family: var(--f-display); font-size: 19px; letter-spacing: 0.03em;
+  background: linear-gradient(90deg, transparent 0%, rgba(30, 36, 46, 0.35) 30%, rgba(40, 48, 62, 0.62) 100%);
+  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  opacity: 0; transform: translateX(-24px); animation: codIn 0.6s var(--ease-out) forwards;
+  transition: color 0.2s, background 0.25s, padding 0.25s var(--ease-out);
+}
+@keyframes codIn { to { opacity: 1; transform: none; } }
+.cod-item span { position: relative; z-index: 1; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }
+.cod-item::before { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent 10%, rgba(79, 216, 255, 0.28) 100%); opacity: 0; transition: opacity 0.25s; }
+.cod-item::after { content: ''; position: absolute; right: 10px; top: 9px; bottom: 9px; width: 3px; background: var(--c-cyan); transform: scaleY(0); transition: transform 0.25s var(--ease-out); box-shadow: 0 0 10px var(--c-cyan); }
+.cod-item:hover, .cod-item:focus-visible, .cod-item:focus { color: #fff; padding-right: 34px; }
+.cod-item:hover::before, .cod-item:focus::before { opacity: 1; }
+.cod-item:hover::after, .cod-item:focus::after { transform: scaleY(1); }
+.cod-foot { position: absolute; left: clamp(24px, 4vw, 60px); bottom: 22px; font-size: 10.5px; color: var(--c-dim); letter-spacing: 0.06em; }
+.cod-hint { position: absolute; right: clamp(24px, 4vw, 60px); bottom: 20px; font-size: 11px; color: var(--c-muted); display: flex; gap: 6px; align-items: center; }
+
+/* ── Mission select: tabs, map labels, title card, carousel ─────────────────── */
+.ms { --ms-pad: clamp(20px, 4vw, 60px); }
+.ms-tabs { position: absolute; top: 22px; left: var(--ms-pad); right: var(--ms-pad); display: flex; align-items: center; gap: 26px; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; }
+.ms-tabs b { color: #fff; font-weight: 500; padding: 4px 10px; border-left: 2px solid var(--c-cyan); border-right: 2px solid var(--c-cyan); }
+.ms-tabs button { background: none; border: 0; color: var(--c-muted); cursor: pointer; font: inherit; letter-spacing: inherit; text-transform: inherit; padding: 4px 0; transition: color 0.2s; }
+.ms-tabs button:hover { color: #fff; }
+.ms-tabs button[data-t='back'] { margin-left: auto; }
+
+.ms-labels { position: absolute; inset: 0; pointer-events: none; }
+.ms-plabel { position: absolute; transform: translate(-50%, -100%); font-size: 12px; letter-spacing: 0.4em; color: rgba(220, 230, 245, 0.7); text-shadow: 0 0 8px #000; transition: color 0.3s; }
+.ms-plabel.on { color: #fff; }
+.ms-plabel.on::after { content: ''; position: absolute; left: 50%; top: 100%; width: 1px; height: 14px; background: rgba(255, 255, 255, 0.5); }
+
+.ms-title { position: absolute; left: var(--ms-pad); top: 22%; width: min(440px, 40vw); pointer-events: none; opacity: 0; }
+.ms-title.in { animation: msIn 0.6s var(--ease-out) forwards; }
+@keyframes msIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: none; } }
+.ms-code { font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--c-cyan); }
+.ms-title h1 { margin: 8px 0 4px; font-family: var(--f-display); font-weight: 600; font-size: clamp(48px, 6vw, 84px); letter-spacing: 0.06em; text-transform: uppercase; line-height: 1; text-shadow: 0 4px 30px rgba(0, 0, 0, 0.6); }
+.ms-sub { font-family: var(--f-display); font-size: 20px; letter-spacing: 0.08em; color: #dfe6f0; margin-bottom: 14px; }
+.ms-title p { margin: 0 0 16px; color: #b9c3d2; line-height: 1.6; font-size: 15px; text-shadow: 0 1px 4px #000; }
+.ms-meta { display: flex; gap: 18px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-muted); border-top: 1px solid var(--c-line); padding-top: 12px; margin-bottom: 16px; }
+.ms-go { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: #fff; display: flex; gap: 10px; align-items: center; }
+.ms-scale { position: absolute; right: var(--ms-pad); top: 62px; font-size: 10.5px; letter-spacing: 0.12em; color: var(--c-dim); text-transform: uppercase; }
+
+.ms-carousel { position: absolute; left: var(--ms-pad); right: var(--ms-pad); bottom: 64px; display: flex; gap: 14px; border-bottom: 1px solid rgba(255, 90, 60, 0.45); padding-bottom: 14px; }
+.ms-card { width: 210px; padding: 0; background: none; border: 0; text-align: left; color: var(--c-muted); cursor: pointer; }
+.ms-thumb { position: relative; height: 112px; background-size: cover; border: 1px solid rgba(255, 255, 255, 0.18); filter: grayscale(0.85) brightness(0.7); transition: all 0.3s; }
+.ms-thumb.blueprint { background: linear-gradient(rgba(79, 216, 255, 0.08) 1px, transparent 1px) 0 0 / 16px 16px, linear-gradient(90deg, rgba(79, 216, 255, 0.08) 1px, transparent 1px) 0 0 / 16px 16px, #071226; }
+.ms-card.on .ms-thumb, .ms-card:hover .ms-thumb { border-color: #fff; outline: 1px solid rgba(255, 255, 255, 0.5); outline-offset: 3px; }
+.ms-card.on .ms-thumb { filter: none !important; }
+.ms-card-name { margin-top: 10px; font-family: var(--f-display); font-size: 16px; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; }
+.ms-card-date { font-size: 11px; letter-spacing: 0.06em; color: var(--c-muted); margin-top: 3px; }
+.ms-card.locked .ms-card-name { color: var(--c-dim); }
+.lock { position: absolute; inset: 0; display: grid; place-items: center; }
+.lock::before { content: ''; width: 26px; height: 20px; border: 2px solid rgba(255, 255, 255, 0.7); border-radius: 3px; margin-top: 12px; }
+.lock::after { content: ''; position: absolute; width: 14px; height: 14px; border: 2px solid rgba(255, 255, 255, 0.7); border-bottom: 0; border-radius: 8px 8px 0 0; transform: translateY(-11px); }
+.ms-keys { position: absolute; left: var(--ms-pad); bottom: 22px; display: flex; gap: 22px; font-size: 11px; letter-spacing: 0.1em; color: var(--c-muted); text-transform: uppercase; pointer-events: none; }
+.ms-keys .kbd { margin-right: 6px; }
+
+@media (max-width: 900px) {
+  .ms-card { width: 150px; }
+  .ms-thumb { height: 80px; }
+  .ms-tabs button:not([data-t='back']) { display: none; }
+}
