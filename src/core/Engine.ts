@@ -33,8 +33,8 @@ export class Engine {
     return this.stage;
   }
 
+  /** Switch the rendered stage. The caller owns the old stage (dispose it if no longer needed). */
   setStage(stage: Stage | null) {
-    if (this.stage && this.stage !== stage) this.stage.dispose();
     this.stage = stage;
     if (stage) stage.resize(window.innerWidth, window.innerHeight);
   }

@@ -160,6 +160,16 @@
 .link-badge[data-s='lost'] { color: var(--c-orange); }
 .link-badge[data-s='lost'] i { background: var(--c-orange); animation: pulse 1s infinite; }
 
+/* ── Pause menu ───────────────────────────────────────────────── */
+.pause-backdrop { pointer-events: auto; position: fixed; inset: 0; z-index: 55; display: grid; place-items: center; background: rgba(2, 4, 9, 0.7); backdrop-filter: blur(6px); opacity: 0; transition: opacity 0.25s; }
+.pause-backdrop.in { opacity: 1; }
+.pause { width: min(400px, calc(100vw - 32px)); padding: 26px; background: var(--glass-strong); }
+.pause h2 { margin: 8px 0 18px; font-family: var(--f-display); font-weight: 400; font-size: 26px; letter-spacing: 0.06em; }
+.pause nav { display: flex; flex-direction: column; gap: 8px; }
+.pause nav .btn { justify-content: space-between; }
+.pause-qr { display: flex; gap: 14px; align-items: center; margin-top: 16px; font-size: 11px; color: var(--c-muted); word-break: break-all; }
+.pause-qr b { color: var(--c-text); font-size: 16px; letter-spacing: 0.2em; }
+
 /* ── Toast ────────────────────────────────────────────────────── */
 .toast { position: fixed; top: 64px; left: 50%; transform: translate(-50%, -10px); z-index: 70; padding: 12px 18px; font-size: 13px; opacity: 0; transition: opacity 0.3s, transform 0.3s var(--ease-out); pointer-events: none; }
 .toast.in { opacity: 1; transform: translate(-50%, 0); }

@@ -31,6 +31,6 @@ for (const [src, out, w, h, o] of jobs) {
 }
 
 await copyFile(N + 'Mars 2020 Perseverance Rover.glb', 'public/models/perseverance.glb');
-await copyFile(N + 'Hubble Space Telescope (B).glb', 'public/models/hubble.glb');
+await copyFile(N + 'Hubble Space Telescope (A).glb', 'public/models/hubble.glb'); // (B) renders as scattered parts
 await copyFile(N + 'International Space Station (ISS) (B).glb', 'public/models/iss.glb');
 console.log('models copied');

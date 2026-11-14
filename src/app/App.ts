@@ -9,7 +9,14 @@ import { ScreenHost, html, openModal, $, $$, wait } from '../ui/dom';
 import { loadingScreen, mainMenu, controlSelect, pairingScreen, missionSelect, howToPlayHtml, sourcesHtml, creditsHtml, type MenuAction } from '../ui/screens';
 import { missionEntries, MISSIONS } from '../missions/registry';
 
+import type { Mission } from '../missions/types';
+
 export type Quality = 'low' | 'medium' | 'high';
+
+/** Mission modules are code-split and loaded on launch. Add new missions here. */
+const MISSION_LOADERS: Record<string, () => Promise<new (app: App) => Mission>> = {
+  jupiter: async () => (await import('../missions/jupiter/JupiterMission')).JupiterMission,
+};
 
 /** Owns the shared systems and drives the menu flow between missions. */
 export class App {
@@ -26,6 +33,7 @@ export class App {
   quality: Quality = (localStorage.getItem('orion.quality') as Quality) || 'high';
 
   private badge = html(`<div class="link-badge" hidden><i></i><span></span></div>`);
+  private mission: Mission | null = null;
   private introDone = false;
 
   constructor() {
@@ -37,6 +45,7 @@ export class App {
 
     this.input.onPress((id) => {
       if (id === 'skip') this.commander.skip();
+      if (id === 'pause') this.togglePause();
     });
     this.link.onChange(() => this.updateBadge());
   }
@@ -149,11 +158,94 @@ export class App {
     const watch = setInterval(() => { if (!el.isConnected) { offPhone(); clearInterval(watch); } }, 1000);
   }
 
-  private launch(id: string) {
+  // ───────────────────────────────────────────── missions
+  missionAvailable(id: string) {
+    return !!MISSION_LOADERS[id] && !!MISSIONS.find((m) => m.id === id)?.enabled;
+  }
+
+  private async launch(id: string): Promise<void> {
     const m = MISSIONS.find((x) => x.id === id);
-    if (!m?.enabled) return;
-    // Mission modules are plugged in here (next milestone).
-    this.toast(`Mission ${m.code} · ${m.title}: module arrives in the next build`);
+    const load = MISSION_LOADERS[id];
+    if (!m?.enabled || !load) {
+      this.toast(`Mission ${m?.code ?? ''} · ${m?.title ?? id} is not available yet`);
+      return;
+    }
+    if (this.mission) return;
+    this.commander.clear();
+    const Ctor = await load();
+    const mission = new Ctor(this);
+    this.mission = mission;
+    const exit = await mission.start();
+    this.closePause();
+    mission.dispose();
+    this.mission = null;
+    this.commander.clear();
+    this.engine.setStage(this.space);
+    this.sfx.setAmbience('space');
+    this.input.pointerEnabled = false;
+    if (exit.to === 'restart') return this.launch(id);
+    if (exit.to === 'mission') return this.launch(exit.id);
+    this.showMissionSelect();
+  }
+
+  // ───────────────────────────────────────────── pause menu
+  private pauseEl: HTMLElement | null = null;
+
+  private togglePause() {
+    if (!this.mission) return;
+    if (this.pauseEl) return this.closePause();
+    this.mission.setPaused(true);
+    this.commander.clear();
+    this.sfx.back();
+    const other = this.mode === 'phone' ? 'device' : 'phone';
+    const el = html(`
+      <div class="pause-backdrop">
+        <div class="pause panel brackets">
+          <div class="eyebrow">Mission paused</div>
+          <h2>Operator console</h2>
+          <nav>
+            <button class="btn primary" data-a="resume">Resume <span class="kbd">ESC</span></button>
+            <button class="btn" data-a="howto">How to play</button>
+            <button class="btn" data-a="switch">Switch to ${other === 'phone' ? 'phone controller' : 'keyboard &amp; mouse'}</button>
+            <button class="btn" data-a="restart">Restart mission</button>
+            <button class="btn ghost" data-a="abort">Abort to mission select</button>
+          </nav>
+          <div class="pause-qr" hidden></div>
+        </div>
+      </div>`);
+    el.addEventListener('click', async (e) => {
+      const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
+      if (!a) return;
+      this.sfx.click();
+      if (a === 'resume') this.closePause();
+      if (a === 'howto') void openModal('How to play', howToPlayHtml(), () => this.sfx.back());
+      if (a === 'restart') this.mission?.abort({ to: 'restart' });
+      if (a === 'abort') this.mission?.abort({ to: 'select' });
+      if (a === 'switch') {
+        this.input.mode = other;
+        this.updateBadge();
+        if (other === 'phone' && !this.link.peerConnected) {
+          const box = $(el, '.pause-qr');
+          box.hidden = false;
+          const url = this.link.controllerUrl;
+          box.innerHTML = `<canvas></canvas><div class="mono">PIN <b>${this.link.pin ?? '----'}</b><br>${url ?? 'No network'}</div>`;
+          if (url) void (await import('qrcode')).default.toCanvas(box.querySelector('canvas')!, url, { width: 150, margin: 1, color: { dark: '#e9eef6', light: '#00000000' } });
+        } else this.closePause();
+        this.toast(other === 'phone' ? 'Phone controller mode' : 'Keyboard & mouse mode');
+      }
+    });
+    this.pauseEl = el;
+    this.ui.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('in'));
+  }
+
+  private closePause() {
+    if (!this.pauseEl) return;
+    const el = this.pauseEl;
+    this.pauseEl = null;
+    el.classList.remove('in');
+    setTimeout(() => el.remove(), 250);
+    this.mission?.setPaused(false);
   }
 
   // ───────────────────────────────────────────── helpers

@@ -7,7 +7,7 @@ import type { Stage } from '../core/Engine';
 import type { Assets } from '../core/Assets';
 import { createStarSphere, glowTexture, ORION, ORION_LINES, raDecToDir } from './sky';
 
-export type SpaceShot = 'loading' | 'menu' | 'select' | 'depart';
+export type SpaceShot = 'loading' | 'menu' | 'select' | 'depart' | 'briefing';
 
 interface Shot { pos: THREE.Vector3; look: THREE.Vector3; fov: number }
 
@@ -16,7 +16,10 @@ const SHOTS: Record<SpaceShot, Shot> = {
   menu: { pos: new THREE.Vector3(0, 1.2, 25), look: new THREE.Vector3(0, 1.4, 0), fov: 45 },
   select: { pos: new THREE.Vector3(-3, 0.2, 21), look: new THREE.Vector3(2, 1.8, 0), fov: 48 },
   depart: { pos: new THREE.Vector3(0, 6, 4), look: new THREE.Vector3(0, 9, -40), fov: 60 },
+  briefing: { pos: new THREE.Vector3(-1.5, 1.4, 20), look: new THREE.Vector3(3.2, 1.2, 12.5), fov: 40 },
 };
+
+const SHOWCASE_POS = new THREE.Vector3(4.6, 1.3, 12.2);
 
 const EARTH_R = 11;
 const EARTH_POS = new THREE.Vector3(0, -13.2, 0);
@@ -225,6 +228,41 @@ export class SpaceStage implements Stage {
     this.composer.addPass(new OutputPass());
   }
 
+  private showcase: THREE.Group | null = null;
+  private showcaseLights: THREE.Light[] = [];
+
+  /** Display a spacecraft model (e.g. Hubble) in front of the briefing camera, normalised to ~size units. */
+  showModel(obj: THREE.Object3D | null, size = 4.2) {
+    if (this.showcase) {
+      this.scene.remove(this.showcase);
+      this.showcase = null;
+    }
+    if (!obj) return;
+    if (!this.showcaseLights.length) {
+      const key = new THREE.DirectionalLight(0xfff1dc, 3.2);
+      key.position.copy(SUN_DIR).multiplyScalar(-1).add(new THREE.Vector3(0.5, 0.6, 1)).normalize().multiplyScalar(20);
+      const rim = new THREE.DirectionalLight(0x9cc8ff, 1.6);
+      rim.position.set(-6, 3, -8);
+      const hemi = new THREE.HemisphereLight(0x9fb8e0, 0x1a2230, 0.7);
+      this.showcaseLights = [key, rim, hemi];
+      this.scene.add(key, rim, hemi);
+    }
+    const box = new THREE.Box3().setFromObject(obj);
+    const dim = box.getSize(new THREE.Vector3());
+    const scale = size / Math.max(dim.x, dim.y, dim.z, 1e-6);
+    const center = box.getCenter(new THREE.Vector3());
+    const pivot = new THREE.Group();
+    obj.position.sub(center);
+    const holder = new THREE.Group();
+    holder.scale.setScalar(scale);
+    holder.add(obj);
+    pivot.add(holder);
+    pivot.position.copy(SHOWCASE_POS);
+    pivot.rotation.set(0.25, -0.6, 0.15);
+    this.showcase = pivot;
+    this.scene.add(pivot);
+  }
+
   setShot(name: SpaceShot, speed = 0.6) {
     this.target = SHOTS[name];
     this.lerpSpeed = speed;
@@ -255,6 +293,10 @@ export class SpaceStage implements Stage {
     this.sun.position.copy(this.camera.position).addScaledVector(SUN_DIR, 900);
 
     this.earth.rotation.y += dt * 0.006;
+    if (this.showcase) {
+      this.showcase.rotation.y += dt * 0.12;
+      this.showcase.position.y = SHOWCASE_POS.y + Math.sin(t * 0.4) * 0.08;
+    }
     this.orionHighlight += (this.orionTarget - this.orionHighlight) * (1 - Math.exp(-dt * 1.5));
     (this.orionLines.material as THREE.LineBasicMaterial).opacity = 0.32 * this.orionHighlight;
     const om = this.orionStars.material as THREE.ShaderMaterial;

@@ -31,7 +31,7 @@ export const ASSET_JOBS: AssetJob[] = [
   { key: 'jezeroMeta', url: '/data/jezero.json', kind: 'json', kb: 1, label: 'Jezero crater terrain · metadata' },
   { key: 'jezeroOrtho', url: '/data/jezero_ortho.jpg', kind: 'texture', kb: 345, label: 'Jezero crater imagery · MRO HiRISE', srgb: true },
   { key: 'rover', url: '/models/perseverance.glb', kind: 'gltf', kb: 4870, label: 'Rover model · NASA/JPL-Caltech Perseverance' },
-  { key: 'hubble', url: '/models/hubble.glb', kind: 'gltf', kb: 5020, label: 'Hubble Space Telescope model · NASA' },
+  { key: 'hubble', url: '/models/hubble.glb', kind: 'gltf', kb: 1655, label: 'Hubble Space Telescope model · NASA' },
 ];
 
 export type ProgressFn = (fraction: number, label: string) => void;
