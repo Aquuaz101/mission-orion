@@ -26,29 +26,30 @@ export const ISS_SPECS = [
 
 export const briefingLines = (mode: ControlMode) => [
   'Welcome to Mission Control, Operator. Today you are the spacewalk officer for an astronaut outside the International Space Station.',
-  'A lithium-ion battery on the P4 truss has failed. You will see everything through the astronaut’s helmet camera and call each step of the repair.',
+  'A lithium-ion battery on the station’s port truss has failed. You will see everything through the astronaut’s helmet camera and call each step of the repair.',
   mode === 'phone'
     ? 'When a decision is needed, the options appear on your phone. Tap one to give the call.'
     : 'When a decision is needed, press one, two or three, or click an option, to give the call.',
 ];
 
 export const L = {
-  boot: 'Helmet camera online. Suit pressure four point three p s i. Pure oxygen. The astronaut is ready at the hatch.',
+  boot: 'Helmet camera online. Suit pressure four point three p s i. Pure oxygen. We are on the night side of the planet, so helmet lights are on.',
   hatch: 'Opening the hatch. Take a moment, Operator. Very few people ever see this.',
-  orbitFact: 'The station is four hundred and twenty kilometres up, moving at about twenty-eight thousand kilometres an hour. That is the Caribbean sliding by below.',
+  orbitFact: 'Those are city lights, four hundred and twenty kilometres below. The station is moving at about twenty-eight thousand kilometres an hour.',
   q1: 'First call. What does the astronaut do before leaving the airlock?',
   tetherOk: 'Correct. Safety tether clipped. On a spacewalk, you are always attached to the station.',
-  q2: 'The worksite is twenty-five metres along the truss. How should the astronaut get there?',
-  railsOk: 'Hand over hand along the handrails. Slow is smooth, and smooth is fast.',
-  translating: 'The yellow handrails run the length of the station. Every tool, and every astronaut, stays tethered.',
-  arrive: 'Arriving at the P4 battery bank. The faulty unit is showing a red status light.',
+  q2: 'The worksite is out on the port truss, forty metres away. How should the astronaut get there?',
+  armOk: 'Canadarm2 it is. Boots into the foot restraint on the end of the arm. The ground team will fly you there.',
+  ride: 'The robotic arm is driven from Earth. Astronauts ride it to reach the far ends of the station.',
+  sunrise1: 'Sunrise in thirty seconds. Look ahead, toward the horizon.',
+  sunrise2: 'There it is. The station sees sixteen of these every day.',
+  arrive: 'Arriving at the battery bank on the P3 truss. The faulty unit is showing a red status light. Hand over hand to the worksite.',
   q3: 'At the worksite. What first?',
   footOk: 'Good. Boots in the foot restraint. Now both hands are free to work.',
   q4: 'Battery 3B is failed. Choose the safe sequence.',
   seqOk: 'Correct. Isolate the power first, so the connectors are dead before anyone touches them.',
-  torqueIntro: 'Unit swapped in. Drive the four bolts with the pistol grip tool. Stop the needle in the green band, about twenty-five foot-pounds.',
-  torqueMiss: 'Not quite. The tool backed off. Try that bolt again.',
-  torqueDone: 'All four bolts torqued. Nicely done.',
+  bolts: 'New unit seated. Driving the four bolts with the pistol grip tool, twenty-five foot-pounds each.',
+  boltsDone: 'All four bolts torqued.',
   connIntro: 'Now reconnect the three power cables. The connectors are keyed: match each plug to its socket shape.',
   connWrong: 'Keying mismatch. These plugs are shaped so they cannot be forced into the wrong socket. Try another.',
   connDone: 'All three connectors mated. Power to the new battery.',
@@ -85,8 +86,8 @@ export const CHOICES = {
   ],
   q2: [
     { label: 'Fly with the SAFER jet pack', sub: 'Fastest route', ok: false, why: L.wrong.safer },
-    { label: 'Hand over hand along the rails', sub: 'Yellow handrails on the truss', ok: true },
-    { label: 'Ride the robotic arm', sub: 'Canadarm2', ok: false, why: L.wrong.arm },
+    { label: 'Ride Canadarm2', sub: 'Foot restraint on the robotic arm', ok: true },
+    { label: 'Push off and float across', sub: 'Straight line', ok: false, why: L.wrong.push },
   ],
   q3: [
     { label: 'Remove gloves for dexterity', sub: 'Fine work ahead', ok: false, why: L.wrong.gloves },

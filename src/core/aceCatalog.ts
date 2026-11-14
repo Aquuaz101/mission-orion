@@ -73,9 +73,10 @@ export function aceCatalog(): CatalogLine[] {
   add(1, 'iss', 'calm, welcoming', 'calm', ...iss.briefingLines('device'), iss.briefingLines('phone')[2]);
   add(1, 'iss', 'calm, focused', 'calm', I.boot);
   add(1, 'iss', 'quiet awe', 'warm', I.hatch, I.orbitFact);
-  add(1, 'iss', 'calm', 'calm', I.q1, I.q2, I.q3, I.q4, I.arrive, I.torqueIntro, I.connIntro, I.translating);
-  add(1, 'iss', 'approving, warm', 'warm', I.tetherOk, I.railsOk, I.footOk, I.seqOk, I.torqueDone, I.connDone, I.powerUp);
-  add(1, 'iss', 'calm, helpful', 'calm', I.torqueMiss, I.connWrong);
+  add(1, 'iss', 'calm', 'calm', I.q1, I.q2, I.q3, I.q4, I.arrive, I.bolts, I.connIntro, I.ride, I.sunrise1);
+  add(1, 'iss', 'quiet awe', 'warm', I.sunrise2);
+  add(1, 'iss', 'approving, warm', 'warm', I.tetherOk, I.armOk, I.footOk, I.seqOk, I.boltsDone, I.connDone, I.powerUp);
+  add(1, 'iss', 'calm, helpful', 'calm', I.connWrong);
   add(1, 'iss', 'serious, alert', 'tense', I.debris1);
   add(1, 'iss', 'urgent, controlled', 'urgent', I.debris2, I.q6, I.impact);
   add(1, 'iss', 'focused, tense', 'tense', I.returnOk, I.shieldOk);

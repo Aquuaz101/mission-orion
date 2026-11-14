@@ -8,7 +8,6 @@ import { ISS_SPECS, briefingLines, L, CHOICES, CONNECTORS, FACTS, type Choice } 
 import { html, $, escapeHtml } from '../../ui/dom';
 import type { CommanderLine } from '../../core/Commander';
 
-const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 /**
  * Mission 03 · Orbital Maintenance. The player is the spacewalk officer in Mission Control, guiding an
@@ -145,15 +144,20 @@ export class ISSMission implements Mission {
     app.sfx.setMusic('none');
     app.space.showModel(null);
     const lines = $(cover, '.cc-lines');
-    const line = async (t: string, ms = 420) => { lines.appendChild(html(`<div class="fade-up">${t}</div>`)); app.sfx.typeTick(); app.sfx.blip(); await this.sleep(ms); };
+    const line = async (t: string, ms = 420) => { const d = html(`<div class="fade-up">${t}</div>`); lines.appendChild(d); app.sfx.typeTick(); app.sfx.blip(); await this.sleep(ms); return d; };
     await line('EMU · EXTRAVEHICULAR MOBILITY UNIT');
-    this.stage = new ISSStage(app.assets, app.engine.renderer, app.quality);
+    // NASA's high-detail ISS (packed, ~40 MB) loads here the first time, then stays cached
+    const ld = await line('STATION MODEL · NASA ISS (IGOAL) · 0%', 100);
+    const gltf = await app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (ld.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`)).catch(() => null);
+    ld.textContent = gltf ? 'STATION MODEL · NASA ISS (IGOAL) · READY' : 'STATION MODEL · UNAVAILABLE';
+    this.alive();
+    this.stage = new ISSStage(app.assets, app.engine.renderer, app.quality, gltf);
     const st = this.stage;
     st.resize(window.innerWidth, window.innerHeight);
     st.update(0.016);
-    st.render(app.engine.renderer); // compile shaders while black
+    st.render(app.engine.renderer); // compile shaders while the screen is black
     await line('SUIT PRESSURE · 4.3 PSI · 100% O₂');
-    await line('HELMET CAMERA · DOWNLINK TO MISSION CONTROL');
+    await line('HELMET LIGHTS · ON · ORBITAL NIGHT');
     await line('CREWLOCK DEPRESSURISED · 0.0 PSI', 600);
     app.engine.setStage(st);
     app.input.pointerEnabled = true;
@@ -171,114 +175,161 @@ export class ISSMission implements Mission {
     setTimeout(() => cover.remove(), 1200);
   }
 
-  // ─────────────────────────────────────────── hatch → Earth reveal → tether
+  // ─────────────────────────────────────────── hatch (night) → Earth with city lights → tether
   private async egress() {
     const st = this.stage!, { sfx } = this.app;
-    st.exposure = 0.75;
     this.setObjective('Exit the airlock');
     await this.say(L.boot);
     this.alive();
-    // hand on the hatch handle, then the hatch swings open onto the Earth
-    await st.reach('R', V(0.0, 0.0, 0.0), 0.9, 1.0);
+    // reach for the hatch handle; the hand stays on it as the hatch swings open
+    await st.R.anchor(() => st.hatchHandle(), 0.92, 0.9);
     sfx.servo(1.2);
-    await this.sleep(500);
+    await this.sleep(400);
     void this.say(L.hatch);
     sfx.setMusic('jupiter');
     sfx.setMusicFocus(1);
     sfx.riser(3.2);
-    void st.restHands(1);
-    const opening = st.tweenObject(st.hatch, null, new THREE.Euler(0, 0, 1.75), 4);
-    const t0 = performance.now();
-    const off = this.app.engine.onTick(() => { const k = Math.min(1, (performance.now() - t0) / 4000); st.exposure = THREE.MathUtils.lerp(0.75, 1.0, k); });
-    await opening;
-    off();
-    sfx.impact(0.55);
-    await st.move([V(-0.5, 0.0, 0.0), V(0.15, 0.05, 0.1)], [V(10, -2.5, 0), V(10, -3.2, 1.5)], 4.5, false);
+    await st.tweenObject(st.hatch, null, new THREE.Euler(0, 0, 0.9), 1.6);
+    void st.R.rest(0.9);
+    await st.tweenObject(st.hatch, null, new THREE.Euler(0, 0, 1.75), 2.2);
+    sfx.impact(0.5);
+    // float up to the threshold; first look out at the night side of Earth
+    await st.move([st.air(-0.5, 0.0, 0), st.air(0.32, 0.05, 0.05)], [st.air(6, -1.8, 0.4), st.air(8, -3.2, 1.2)], 4.8);
     this.alive();
-    this.locationCard(['INTERNATIONAL SPACE STATION', '420 km above the Caribbean Sea', `${Math.round(st.earthSpeedKmh).toLocaleString()} km/h · one orbit every 92 min`]);
+    this.locationCard(['INTERNATIONAL SPACE STATION', 'Orbital night · 420 km above the Gulf of Mexico', `${Math.round(st.earthSpeedKmh).toLocaleString()} km/h · one orbit every 92 min`]);
     await this.say(L.orbitFact);
     this.alive();
 
-    // Decision 1: tether
+    // Decision 1: tether — the left hand clips onto the ring on the hatch frame
     await this.choose(L.q1, CHOICES.q1);
-    const anchor = V(0.35, 0.75, 0.75);
-    await st.reach('L', anchor, 0.95, 0.8);
+    const ring = st.air(0.08, 0.75, 0.55);
+    await st.L.anchor(() => ring, 0.95, 0.7);
     sfx.clip();
-    st.tetherAnchor = anchor;
+    st.tetherAnchor = ring;
     this.setStatus('tether', 'SECURED');
+    await this.sleep(350);
+    void st.L.rest(0.7);
     await this.say(L.tetherOk);
-    void st.restHands(0.8);
   }
 
-  // ─────────────────────────────────────────── along the truss
+  // ─────────────────────────────────────────── Canadarm2 ride: sweeping views, orbital sunrise
   private async translate() {
-    const st = this.stage!;
-    this.setObjective('Reach the P4 battery bank');
+    const st = this.stage!, { sfx } = this.app;
+    this.setObjective('Reach the P3 battery bank');
     await this.choose(L.q2, CHOICES.q2);
-    void this.say(L.railsOk);
-    // up the frame onto the truss
-    await st.move(
-      [V(0.7, 0.4, 0.75), V(1.15, 1.6, 1.4), V(1.6, 3.0, 2.3), V(3.2, 4.15, 2.8)],
-      [V(4, 2.5, 1), V(3, 5, 1.5), V(10, 4.4, 2.4), V(14, 4.2, 2.5)],
-      7.5, true);
+    void this.say(L.armOk);
+    // the arm's end arrives under the hatch; step out into the foot restraint and take the handhold
+    st.showRig(true);
+    st.rig.position.set(0, -1.2, 0.8);
+    void st.tweenObject(st.rig, new THREE.Vector3(0, 0, 0), null, 2.2);
+    sfx.servo(2.0);
+    await st.move([st.air(0.9, -0.25, 0.2), st.air(1.35, -0.45, 0.25)], [st.air(6, -1.6, 1.5), st.air(7, -2, 3)], 2.6);
+    void st.L.anchor(() => st.rigHandhold(), 0.95, 0.6);
+    sfx.clank();
+    st.kick(0.15);
+    await this.sleep(500);
     this.alive();
-    void this.say(L.translating);
-    await st.move(
-      [V(8, 4.2, 2.85), V(14, 4.25, 2.85), V(19.5, 4.3, 2.9), V(23.2, 4.45, 3.25)],
-      [V(20, 4.2, 2.5), V(26, 4.1, 2.4), V(30, 4.3, 2.4), V(24.6, 4.45, 2.1)],
-      11, true);
+    // the ride: down past Quest, under the modules, along the ram side of the truss, up to P3 — while the Sun rises ahead
+    st.sunTo(-14, 30);
+    sfx.servo(1.5);
+    void this.say(L.ride);
+    const ride = st.move(
+      [new THREE.Vector3(5.6, -8.4, 10.6), new THREE.Vector3(3.2, -11.2, 4.2), new THREE.Vector3(-5.8, -10.4, -7.6), new THREE.Vector3(-7.2, -4.4, -16.4), new THREE.Vector3(-6.4, 0.6, -21.0), st.at(3.4, -0.15, 1.35)],
+      [new THREE.Vector3(-6, -11, 16), new THREE.Vector3(-18, -12, 2), new THREE.Vector3(-26, -8, -12), new THREE.Vector3(-24, -2, -24), new THREE.Vector3(-12, 0, -26), st.at(1.6, -0.3, 0.2)],
+      30, 'inout');
+    await this.sleep(6500);
+    void this.say(L.sunrise1, true);
+    await this.sleep(6500);
+    // the Sun clears the limb: music swells, shafts through the truss
+    sfx.impact(0.6);
+    sfx.setMusic('triumph');
+    void this.say(L.sunrise2, true);
+    await ride;
     this.alive();
-    await st.move([V(24, 4.55, 3.85)], [V(24, 4.45, 2.07)], 2.2, false);
-    this.app.sfx.objective();
-    await this.say(L.arrive);
+    // off the arm, hand over hand along the rails on the truss face to the worksite
+    sfx.objective();
+    void this.say(L.arrive);
+    void st.L.rest(0.5);
+    st.showRig(false);
+    await this.climb([3.2, 2.4, 1.6, 0.8, 0.0]);
+    this.alive();
+    await st.move([st.at(0, 0.08, 1.74)], [st.at(0, 0.02, 0.27)], 1.4);
   }
 
-  // ─────────────────────────────────────────── the repair
+  /** Hand over hand along the worksite rails (site-local x positions): each hand grabs a real rail and holds it
+   *  while the body pulls past, then the other hand takes the next one. */
+  private async climb(xs: number[], fast = false) {
+    const st = this.stage!, { sfx } = this.app;
+    const per = fast ? 0.55 : 0.85;
+    for (let i = 0; i < xs.length; i++) {
+      const hand = i % 2 ? st.R : st.L, other = i % 2 ? st.L : st.R;
+      const rail = st.at(xs[i], -0.72, 0.1);
+      await hand.anchor(() => rail, 0.95, fast ? 0.28 : 0.4);
+      sfx.connector(false);
+      void other.rest(0.5);
+      await st.move([st.at(xs[i] - 0.2, -0.1, 1.15)], [st.at(xs[i] - 1.4, -0.35, 0.1)], per);
+      this.alive();
+    }
+    void st.L.rest(0.5); void st.R.rest(0.5);
+  }
+
+  // ─────────────────────────────────────────── the repair (decisions only; every hand action touches real hardware)
   private async repair() {
     const st = this.stage!, { sfx } = this.app;
     this.setObjective('Replace battery 3B');
+    st.sunTo(6, 70);
+    sfx.setMusic('jupiter');
     await this.choose(L.q3, CHOICES.q3);
-    await st.move([V(24, 4.5, 3.72)], [V(24, 4.42, 2.07)], 1.2, false);
+    await st.move([st.at(0, 0.02, 1.66)], [st.at(0, 0.0, 0.27)], 1.0);
     sfx.clank();
-    st.kick(0.25);
+    st.kick(0.2);
     await this.say(L.footOk);
     this.alive();
 
     await this.choose(L.q4, CHOICES.q4);
     void this.say(L.seqOk);
-    // isolate power (Mission Control opens the remote power controllers)
     this.progress('Isolating power · remote power controllers open');
-    await this.sleep(1600);
-    st.oldOru.leds.forEach((l) => { l.emissive.set(0x000000); });
-    // disconnect J1..J3
+    await this.sleep(1500);
+    st.oldOru.leds.forEach((l) => l.emissive.set(0x000000));
     this.progress('Disconnecting J1 · J2 · J3');
     for (const p of st.oldOru.ports) {
-      await st.reach('R', p.getWorldPosition(new THREE.Vector3()), 0.85, 0.45);
+      await st.R.anchor(() => st.worldOf(p), 0.85, 0.45);
       sfx.connector(false);
-      await this.sleep(250);
+      await this.sleep(260);
     }
-    // unbolt with the pistol grip tool
     this.progress('Releasing bolts · pistol grip tool');
     st.showTool(true);
     for (const b of st.oldOru.bolts) {
-      await st.reach('R', b.getWorldPosition(new THREE.Vector3()), 0.9, 0.4);
-      sfx.ratchet(0.5, false);
-      await st.tweenObject(b, b.position.clone().add(V(0, 0, 0.03)), new THREE.Euler(Math.PI / 2, -6, 0), 0.5);
+      await st.R.anchor(() => st.worldOf(b), 0.95, 0.38);
+      sfx.ratchet(0.55, false);
+      await st.tweenObject(b, b.position.clone().add(new THREE.Vector3(0, 0, 0.03)), new THREE.Euler(Math.PI / 2, -6, 0), 0.55);
     }
     st.showTool(false);
-    // swap units
+    // both hands on the ORU handle; the unit comes out and is handed off to a temporary stow point
     this.progress('Swapping battery units');
-    const handle = st.worksite.clone().add(V(0, 0.36, 0.3));
-    await Promise.all([st.reach('L', handle.clone().add(V(-0.2, 0, 0)), 0.95, 0.6), st.reach('R', handle.clone().add(V(0.2, 0, 0)), 0.95, 0.6)]);
+    const oldG = st.oldOru.group, newG = st.newOru.group;
+    await Promise.all([st.L.anchor(() => st.worldOf(oldG, new THREE.Vector3(-0.17, 0.36, 0.3)), 0.95, 0.5), st.R.anchor(() => st.worldOf(oldG, new THREE.Vector3(0.17, 0.36, 0.3)), 0.95, 0.5)]);
     sfx.servo(1.0);
-    await st.tweenObject(st.oldOru.group, st.worksite.clone().add(V(-1.6, 0.4, 1.1)), new THREE.Euler(0.2, 0.6, 0.1), 2.2);
-    void st.restHands(0.6);
-    await st.tweenObject(st.newOru.group, st.worksite.clone(), new THREE.Euler(0, 0, 0), 2.4);
+    await st.tweenObject(oldG, new THREE.Vector3(0, 0.05, 0.75), null, 1.4);
+    await st.tweenObject(oldG, new THREE.Vector3(1.5, -0.75, 1.0), new THREE.Euler(0.15, -0.4, 0), 1.6);
+    await Promise.all([st.L.anchor(() => st.worldOf(newG, new THREE.Vector3(-0.17, 0.36, 0.3)), 0.95, 0.6), st.R.anchor(() => st.worldOf(newG, new THREE.Vector3(0.17, 0.36, 0.3)), 0.95, 0.6)]);
+    await st.tweenObject(newG, new THREE.Vector3(0, 0.02, 0.78), new THREE.Euler(0, 0, 0), 1.6);
+    await st.tweenObject(newG, new THREE.Vector3(0, 0, 0.27), null, 1.0);
     sfx.clank();
     st.kick(0.2);
+    void st.L.rest(0.6);
     this.hideProgress();
-
-    await this.torqueGame();
+    // bolts: the tool drives each one
+    void this.say(L.bolts);
+    st.showTool(true);
+    for (const b of st.newOru.bolts) {
+      await st.R.anchor(() => st.worldOf(b), 0.95, 0.38);
+      sfx.ratchet(0.6, true);
+      await st.tweenObject(b, b.position.clone().add(new THREE.Vector3(0, 0, -0.02)), new THREE.Euler(Math.PI / 2, 8, 0), 0.6);
+    }
+    st.showTool(false);
+    void st.R.rest(0.6);
+    void this.say(L.boltsDone);
     this.alive();
     await this.connectorGame();
     this.alive();
@@ -291,95 +342,23 @@ export class ISSMission implements Mission {
     await this.say(L.powerUp);
   }
 
-  /** Minigame 1: stop the torque needle in the green band for each bolt. */
-  private async torqueGame() {
-    const st = this.stage!, { sfx } = this.app;
-    await this.say(L.torqueIntro);
-    this.alive();
-    st.showTool(true);
-    const g = html(`
-      <div class="torque panel">
-        <div class="tq-head mono"><span>PISTOL GRIP TOOL · CW</span><b class="tq-bolt">BOLT 1 / 4</b></div>
-        <svg viewBox="-110 -110 220 130" class="tq-dial">
-          <path class="tq-arc" d="M -90 0 A 90 90 0 0 1 90 0" />
-          <path class="tq-green" d="" />
-          <line class="tq-needle" x1="0" y1="0" x2="0" y2="-84" />
-          <circle r="6" class="tq-hub" />
-        </svg>
-        <div class="tq-read mono"><b class="tq-val">0.0</b> ft-lb · target 25 ± <span class="tq-tol">2</span></div>
-        <div class="tq-hint mono"><span class="kbd">SPACE</span> / click / phone ACTION to stop the tool</div>
-      </div>`);
-    this.hud!.appendChild(g);
-    this.sendPhone('TORQUE');
-    const bolts = st.newOru.bolts;
-    for (let i = 0; i < bolts.length; i++) {
-      const b = bolts[i];
-      $(g, '.tq-bolt').textContent = `BOLT ${i + 1} / 4`;
-      const tol = [2.6, 2.2, 1.9, 1.6][i];
-      $(g, '.tq-tol').textContent = tol.toFixed(1);
-      const toA = (v: number) => (-90 + (v / 40) * 180) * (Math.PI / 180);
-      const arcPt = (v: number) => `${(Math.sin(toA(v)) * 90).toFixed(1)} ${(-Math.cos(toA(v)) * 90).toFixed(1)}`;
-      g.querySelector('.tq-green')!.setAttribute('d', `M ${arcPt(25 - tol)} A 90 90 0 0 1 ${arcPt(25 + tol)}`);
-      await st.reach('R', b.getWorldPosition(new THREE.Vector3()), 0.9, 0.5);
-      for (;;) {
-        // needle sweeps; speed rises each bolt
-        let v = 0, dir = 1;
-        const speed = 22 + i * 7;
-        const off = this.app.engine.onTick((dt) => {
-          if (this.paused) return;
-          v += dir * speed * dt;
-          if (v > 40) { v = 40; dir = -1; } else if (v < 0) { v = 0; dir = 1; }
-          (g.querySelector('.tq-needle') as SVGElement).setAttribute('transform', `rotate(${-90 + (v / 40) * 180})`);
-          $(g, '.tq-val').textContent = v.toFixed(1);
-          sfx.toolWhine(v / 40);
-        });
-        await this.waitAction();
-        off();
-        sfx.toolWhine(0);
-        const err = Math.abs(v - 25);
-        if (err <= tol) {
-          this.torqueScores.push(1 - err / tol);
-          sfx.ratchet(0.6, true);
-          g.classList.remove('miss'); g.classList.add('hit');
-          void st.tweenObject(b, b.position.clone().add(V(0, 0, -0.02)), new THREE.Euler(Math.PI / 2, 8, 0), 0.6);
-          st.kick(0.08);
-          await this.sleep(700);
-          g.classList.remove('hit');
-          break;
-        }
-        this.torqueScores.push(0);
-        sfx.error();
-        g.classList.add('miss');
-        if (!this.app.commander.busy) void this.say(L.torqueMiss);
-        await this.sleep(600);
-        g.classList.remove('miss');
-      }
-    }
-    g.remove();
-    st.showTool(false);
-    this.sendPhone(null);
-    sfx.objective();
-    await this.say(L.torqueDone);
-  }
-
-  /** Minigame 2: keyed connectors. Pick the socket that matches each plug's shape. */
+  /** Keyed connectors: pick the socket matching each plug's shape; the right hand then mates it. */
   private async connectorGame() {
     const st = this.stage!, { sfx } = this.app;
     await this.say(L.connIntro);
     this.alive();
-    // sockets on the unit are in a fixed, shuffled order of shapes
     const order = [2, 0, 1];
     const shapeSvg = (s: string, c: string) => s === 'circle' ? `<circle r="15" fill="none" stroke="${c}" stroke-width="4"/>` : s === 'triangle' ? `<path d="M0 -17 L15 11 L-15 11 Z" fill="none" stroke="${c}" stroke-width="4"/>` : `<rect x="-14" y="-14" width="28" height="28" fill="none" stroke="${c}" stroke-width="4"/>`;
     for (const plug of CONNECTORS) {
       const opts: Choice[] = order.map((k, i) => ({ label: `Socket ${String.fromCharCode(65 + i)}`, sub: '', ok: CONNECTORS[k].id === plug.id, why: L.connWrong, icon: shapeSvg(CONNECTORS[k].shape, '#e9eef6') } as Choice & { icon: string }));
       const idx = await this.choose(`Mate plug ${plug.name}`, opts, { icon: shapeSvg(plug.shape, plug.color), silentPrompt: true, quiet: true });
       const port = st.newOru.ports[order[idx]];
-      await st.reach('R', port.getWorldPosition(new THREE.Vector3()), 0.9, 0.5);
+      await st.R.anchor(() => st.worldOf(port), 0.9, 0.5);
       sfx.connector(true);
       st.newOru.leds[order[idx]].emissive.set(0xffaa00);
       await this.sleep(300);
     }
-    void st.restHands(0.6);
+    void st.R.rest(0.6);
     await this.say(L.connDone);
   }
 
@@ -387,7 +366,6 @@ export class ISSMission implements Mission {
   private async debrisEscape() {
     const st = this.stage!, { sfx } = this.app;
     await this.sleep(1200);
-    // a beat of silence, then the alert
     sfx.silence(900);
     sfx.setMusic('none');
     await this.sleep(800);
@@ -404,31 +382,32 @@ export class ISSMission implements Mission {
     await this.say([L.debris1, L.debris2], true);
     this.alive();
     st.debris = 0.25;
+    st.sunTo(14, 60);
     await this.choose('Debris alert: your call', CHOICES.q5, { timer: 9 });
     void this.say(L.returnOk, true);
     sfx.setMusic('rescue', 0.6);
     this.stressTo(0.75);
     st.debris = 0.6;
     // back along the rails, fast
-    await st.move(
-      [V(23, 4.4, 3.0), V(17, 4.3, 2.9), V(11, 4.25, 2.85)],
-      [V(14, 4.25, 2.6), V(8, 4.2, 2.6), V(2, 4.0, 2.5)],
-      6, true);
+    await st.move([st.at(0.4, -0.05, 1.3)], [st.at(2.5, -0.2, 0.3)], 0.8);
+    await this.climb([0.8, 1.6, 2.4], true);
     this.alive();
-    // fragments ahead: hold or go
+    // fragments crossing: hold on behind the truss
     st.debris = 1;
     st.shake = 0.6;
-    const choice = this.choose('Fragments crossing ahead', CHOICES.q6, { timer: 6, prompt: 'Fragments crossing ahead' });
+    const choice = this.choose('Fragments crossing ahead', CHOICES.q6, { timer: 6 });
     void this.say(L.q6, true);
     await choice;
     void this.say(L.shieldOk, true);
+    await st.L.anchor(() => st.at(2.4, -0.72, 0.1), 0.98, 0.3);
+    await st.R.anchor(() => st.at(1.6, -0.72, 0.1), 0.98, 0.3);
     st.shake = 0.9;
-    // impacts nearby while holding behind the truss
-    for (const [d, at] of [[400, V(14, 6.6, 1.2)], [900, V(57, 9, 14)], [700, V(6, 3.0, 1.9)]] as const) {
+    for (const [d, at] of [[400, st.at(-0.5, 1.6, 0.4)], [900, new THREE.Vector3(-3, 6, -32)], [700, st.at(3.5, -1.0, 0.3)]] as const) {
       await this.sleep(d);
       st.burst(at, 50, 4);
-      st.kick(at.distanceTo(st.camera.position) < 12 ? 0.9 : 0.4, 0.15);
-      sfx.impact(at.distanceTo(st.camera.position) < 12 ? 1 : 0.6);
+      const close = at.distanceTo(st.body.position) < 12;
+      st.kick(close ? 0.9 : 0.4, 0.15);
+      sfx.impact(close ? 1 : 0.6);
       sfx.setMuffle(0.4);
       setTimeout(() => sfx.setMuffle(0), 700);
       this.app.link.buzz(120);
@@ -436,22 +415,32 @@ export class ISSMission implements Mission {
     void this.say(L.impact, true);
     st.debris = 0.5;
     this.stressTo(0.9);
+    // the arm is waiting: back into the foot restraint and a fast ride home
+    st.showRig(true);
+    st.rig.position.set(0, 0, 0);
+    await st.move([st.at(3.4, -0.15, 1.35)], [new THREE.Vector3(-8, -2, -14)], 0.9);
+    void st.L.anchor(() => st.rigHandhold(), 0.95, 0.4);
+    void st.R.rest(0.5);
+    sfx.servo(1.5);
     await st.move(
-      [V(6, 4.2, 2.8), V(2.4, 4.0, 2.6), V(1.3, 2.4, 1.6), V(0.9, 0.6, 0.6), V(0.2, 0.0, 0.0)],
-      [V(2, 4.0, 2.4), V(1.0, 2.0, 1.0), V(0.6, 0.0, 0.0), V(-4, 0, 0), V(-6, 0, 0)],
-      6.5, true);
+      [new THREE.Vector3(-6.4, 0.6, -21.0), new THREE.Vector3(-7.2, -4.4, -16.4), new THREE.Vector3(-5.8, -10.4, -7.6), new THREE.Vector3(3.2, -11.2, 4.2), new THREE.Vector3(5.6, -8.4, 10.6), st.air(1.35, -0.45, 0.25)],
+      [new THREE.Vector3(-8, -6, -10), new THREE.Vector3(-4, -12, 0), new THREE.Vector3(6, -12, 10), new THREE.Vector3(8, -8, 14), st.air(0, 0, 0), st.air(-2, 0, 0)],
+      16, 'inout');
     this.alive();
-    // inside: turn around, close the hatch
-    await st.move([V(-1.3, 0, 0)], [V(3, -0.3, 0)], 2.2, false);
+    st.showRig(false);
+    void st.L.rest(0.4);
+    // inside: turn around, pull the hatch shut
+    await st.move([st.air(0.3, 0, 0), st.air(-1.3, 0, 0)], [st.air(-3, 0, 0), st.air(3, -0.2, 0)], 2.6);
     st.debris = 0;
     st.shake = 0;
     st.tetherAnchor = null;
-    await st.reach('R', V(0.1, -0.3, 0), 0.9, 0.6);
+    await st.R.anchor(() => st.hatchHandle(), 0.92, 0.6);
     sfx.servo(1.0);
     await st.tweenObject(st.hatch, null, new THREE.Euler(0, 0, 0), 2.2);
     sfx.clank();
     sfx.impact(0.8);
     st.kick(0.4);
+    void st.R.rest(0.6);
     sfx.setMusic('none');
     st.alert = 0;
     this.hud!.classList.remove('alert');
@@ -533,10 +522,6 @@ export class ISSMission implements Mission {
     });
   }
 
-  private waitAction() {
-    return new Promise<void>((r) => (this.actionResolver = r));
-  }
-
   private onPress(id: string) {
     if (this.paused) return;
     const m = id.match(/^(?:key:(?:Digit|Numpad)([1-4])|choice:([1-4]))$/);
@@ -556,9 +541,9 @@ export class ISSMission implements Mission {
     const { input } = this.app;
     const m = input.consumeMouse();
     const r = input.stickR();
-    st.lookYaw = THREE.MathUtils.clamp(st.lookYaw - m.dx * 0.0025 - r.x * dt * 1.4, -0.6, 0.6);
-    st.lookPitch = THREE.MathUtils.clamp(st.lookPitch - m.dy * 0.0025 + r.y * dt * 1.0, -0.45, 0.45);
-    if (!m.dx && !m.dy && !r.x && !r.y) { st.lookYaw *= Math.exp(-dt * 1.2); st.lookPitch *= Math.exp(-dt * 1.2); }
+    st.lookYaw = THREE.MathUtils.clamp(st.lookYaw - m.dx * 0.0025 - r.x * dt * 1.4, -1.1, 1.1);
+    st.lookPitch = THREE.MathUtils.clamp(st.lookPitch - m.dy * 0.0025 + r.y * dt * 1.0, -0.7, 0.7);
+    if (!m.dx && !m.dy && !r.x && !r.y) { st.lookYaw *= Math.exp(-dt * 0.6); st.lookPitch *= Math.exp(-dt * 0.6); }
 
     // suit telemetry (heart rate follows stress)
     this.heart += ((72 + this.stress * 70) - this.heart) * Math.min(1, dt * 0.6);

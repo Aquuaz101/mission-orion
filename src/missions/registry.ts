@@ -54,7 +54,7 @@ export const MISSIONS: MissionInfo[] = [
     instrument: 'Spacewalk · helmet camera',
     description: 'Guide an astronaut through a spacewalk to replace a failed battery, then get them home through a debris alert.',
     duration: '≈ 4 min',
-    enabled: false,
+    enabled: true,
     image: '/textures/earth_detail.jpg',
     imagePos: '45% 50%',
     imageSize: 'auto 160%',

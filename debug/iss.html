@@ -1,0 +1,42 @@
+﻿<!doctype html>
+<html><head><meta charset="utf-8"><title>ISS layout debug</title>
+<style>html,body{margin:0;background:#0b0f16;color:#cde;font:12px monospace}canvas{display:block}#lab{position:fixed;left:8px;top:8px;white-space:pre}</style></head>
+<body><div id="lab"></div>
+<script type="module">
+// Dev tool: orthographic blueprint views of the packed ISS (metres) with a 5 m grid and an optional path.
+// Usage: /debug/iss.html#view=top|side|front&cx=0&cy=0&cz=0&size=60&path=x,y,z;x,y,z...
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+const q = Object.fromEntries(location.hash.slice(1).split('&').map((p) => p.split('=')));
+const view = q.view ?? 'top', size = Number(q.size ?? 70), c = new THREE.Vector3(Number(q.cx ?? 0), Number(q.cy ?? 0), Number(q.cz ?? 0));
+const r = new THREE.WebGLRenderer({ antialias: true });
+r.setSize(1400, 1000); document.body.appendChild(r.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 2.2));
+const d = new THREE.DirectionalLight(0xffffff, 2); d.position.set(5, 10, 7); scene.add(d);
+const a = 1.4, cam = new THREE.OrthographicCamera(-size * a / 2, size * a / 2, size / 2, -size / 2, -500, 500);
+if (view === 'top') { cam.position.copy(c).add(new THREE.Vector3(0, 100, 0)); cam.up.set(-1, 0, 0); }
+if (view === 'side') { cam.position.copy(c).add(new THREE.Vector3(100, 0, 0)); }
+if (view === 'front') { cam.position.copy(c).add(new THREE.Vector3(0, 0, 100)); }
+if (view === 'ram') { cam.position.copy(c).add(new THREE.Vector3(-100, 0, 0)); }
+if (view === 'persp') { const pc = new THREE.PerspectiveCamera(60, 1.4, 0.1, 1000); pc.position.set(...q.eye.split(',').map(Number)); pc.lookAt(c); window.persp = pc; }
+cam.lookAt(c);
+const grid = new THREE.GridHelper(400, 80, 0x335577, 0x1b2a3a);
+if (view === 'side' || view === 'ram') grid.rotation.z = Math.PI / 2;
+if (view === 'front') grid.rotation.x = Math.PI / 2;
+grid.position.copy(c); scene.add(grid);
+scene.add(new THREE.AxesHelper(6));
+const gl = await new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).loadAsync('/models/iss_hd.glb');
+gl.scene.scale.setScalar(9.8378);
+scene.add(gl.scene); window.THREE = THREE; window.gl = gl;
+if (q.path) {
+  const pts = q.path.split(';').map((s) => new THREE.Vector3(...s.split(',').map(Number)));
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(new THREE.CatmullRomCurve3(pts).getPoints(200)), new THREE.LineBasicMaterial({ color: 0xff3366, depthTest: false })));
+  pts.forEach((p, i) => { const m = new THREE.Mesh(new THREE.SphereGeometry(size / 140), new THREE.MeshBasicMaterial({ color: i ? 0xffcc00 : 0x00ff88, depthTest: false })); m.position.copy(p); scene.add(m); });
+}
+if (q.box) { const [x, y, z, s] = q.box.split(',').map(Number); const b = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), new THREE.MeshBasicMaterial({ color: 0x00ffff, wireframe: true, depthTest: false })); b.position.set(x, y, z); scene.add(b); }
+if (view === 'persp') { grid.visible = false; scene.add(new THREE.AmbientLight(0xffffff, 0.3)); } r.render(scene, window.persp ?? cam);
+document.getElementById('lab').textContent = `${view} Â· centre ${c.toArray()} Â· ${size} m tall Â· grid 5 m Â· axes: X red, Y green (zenith), Z blue (starboard)`;
+window.done = true;
+</script></body></html>
