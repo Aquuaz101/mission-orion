@@ -222,7 +222,7 @@ export class SpaceStage implements Stage {
     this.scene.add(this.dust);
 
     // ── Post-processing: subtle bloom for the Sun, atmosphere and Orion.
-    this.composer = new EffectComposer(renderer);
+    this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.7, 0.78));
     this.composer.addPass(new OutputPass());
@@ -342,6 +342,7 @@ export class SpaceStage implements Stage {
   resize(w: number, h: number) {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.composer.setPixelRatio(this.composer.renderer.getPixelRatio());
     this.composer.setSize(w, h);
   }
 

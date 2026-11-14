@@ -168,7 +168,7 @@ export class MarsMission implements Mission {
     const start = this.pois.get('start')!.pos, first = this.pois.get('s1')!.pos;
     st.placeRover(start, Math.atan2(first.x - start.x, first.z - start.z));
     st.update(0.016);
-    st.render();
+    st.render(app.engine.renderer); // compile shaders while the screen is black
     await say('TERRAIN · HiRISE DTM · JEZERO DELTA FRONT');
     await say('SKY CRANE · TOUCHDOWN CONFIRMED', 450);
 

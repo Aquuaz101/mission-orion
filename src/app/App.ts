@@ -301,10 +301,9 @@ export class App {
 
   applyQuality() {
     const dpr = window.devicePixelRatio || 1;
-    const pr = this.quality === 'low' ? 1 : this.quality === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2);
-    this.engine.renderer.setPixelRatio(pr);
-    this.engine.renderer.setSize(window.innerWidth, window.innerHeight, false);
-    this.engine.current?.resize(window.innerWidth, window.innerHeight);
+    const pr = this.quality === 'low' ? Math.min(dpr, 1) * 0.85 : this.quality === 'medium' ? Math.min(dpr, 1.25) : Math.min(dpr, 1.75);
+    this.engine.targetFps = 58;
+    this.engine.setBasePixelRatio(pr);
   }
 
   private settingsPanel() {
@@ -312,7 +311,9 @@ export class App {
       <div>
         <div class="settings-row"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" class="vol"><span class="mono vol-v"></span></div>
         <div class="settings-row"><span>Commander voice</span><span class="muted">Spoken lines use your browser's built-in offline voice. Subtitles are always shown.</span><div class="seg voice"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
-        <div class="settings-row"><span>Graphics quality</span><span class="muted">Lower this if the frame rate drops on older laptops.</span><div class="seg quality"><button data-v="low">Low</button><button data-v="medium">Medium</button><button data-v="high">High</button></div></div>
+        <div class="settings-row"><span>Graphics quality</span><span class="muted">Shadows, anti-aliasing, light shafts, rock density and effects. Takes effect on the next mission.</span><div class="seg quality"><button data-v="low">Low</button><button data-v="medium">Medium</button><button data-v="high">High</button></div></div>
+        <div class="settings-row"><span>Dynamic resolution</span><span class="muted">Automatically lowers render resolution to hold ~60 FPS (the HUD stays sharp).</span><div class="seg drs"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+        <div class="settings-row"><span>Performance overlay</span><span class="muted">FPS, frame time, resolution and draw calls. Shortcut: F3.</span><div class="seg fps"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
       </div>`);
     const vol = $<HTMLInputElement>(el, '.vol');
     vol.value = String(this.sfx.level);
@@ -336,6 +337,11 @@ export class App {
       localStorage.setItem('orion.quality', v);
       this.applyQuality();
     });
+    seg('.drs', this.engine.drsEnabled ? 'on' : 'off', (v) => {
+      this.engine.drsEnabled = v === 'on';
+      if (!this.engine.drsEnabled) { this.engine.resScale = 1; this.engine.applyPixelRatio(); }
+    });
+    seg('.fps', document.querySelector('.perf-stats') ? 'on' : 'off', (v) => this.engine.toggleStats(v === 'on'));
     return el;
   }
 }

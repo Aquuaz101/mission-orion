@@ -1,0 +1,20 @@
+// Pure on-the-spot turn from standstill: left and right wheels must spin in opposite directions.
+import { chromium } from 'playwright-core';
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true, args: ['--use-angle=d3d11'] });
+const pc = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+await pc.goto('http://localhost:5173');
+await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
+await pc.click('.begin'); await pc.waitForTimeout(800);
+await pc.click('.cod-item[data-a="start"]'); await pc.waitForTimeout(400);
+await pc.click('.choice[data-m="device"]'); await pc.waitForSelector('.ms'); await pc.waitForTimeout(500);
+await pc.click('.ms-card[data-id="mars"]'); await pc.waitForSelector('.briefing', { timeout: 20000 }); await pc.waitForTimeout(300);
+await pc.keyboard.press('Enter');
+await pc.waitForFunction(() => window.orion.mission?.phase === 'explore', null, { timeout: 60000 });
+await pc.waitForTimeout(1000);
+const read = () => pc.evaluate(() => window.orion.mission.stage.wheels.map((w) => ({ x: +w.x.toFixed(2), r: w.pivot.rotation.x })));
+const a = await read();
+await pc.keyboard.down('KeyA'); await pc.waitForTimeout(1500); await pc.keyboard.up('KeyA');
+await pc.waitForTimeout(300);
+const b = await read();
+console.log('pure left turn (wheel x → Δrotation):', a.map((w, i) => `${w.x}→${(b[i].r - w.r).toFixed(2)}`).join('  '));
+await browser.close();

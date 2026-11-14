@@ -162,20 +162,26 @@ export function createAres7() {
   wheelGeo.rotateZ(Math.PI / 2);
   const treadGeo = new THREE.TorusGeometry(0.22, 0.03, 6, 20);
   treadGeo.rotateY(Math.PI / 2);
+  const wheelPivots: THREE.Group[] = [];
+  const hubGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.22, 10).rotateZ(Math.PI / 2);
+  const spokeGeo = new THREE.BoxGeometry(0.21, 0.03, 0.4);
   for (const side of [-1, 1]) {
     const x = side * 0.88;
     body.add(mesh(new THREE.BoxGeometry(0.06, 0.06, 1.45), grey, side * 0.72, 0.52, 0));
     for (const [z, h] of [[-0.62, 0.42], [0, 0.42], [0.62, 0.42]] as const) {
       body.add(mesh(new THREE.BoxGeometry(0.05, h, 0.05), grey, side * 0.78, 0.36, z));
-      body.add(mesh(wheelGeo, dark, x, 0.24, z));
-      body.add(mesh(treadGeo, dark, x, 0.24, z));
-      body.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.22, 10).rotateZ(Math.PI / 2), grey, x, 0.24, z));
+      const pivot = new THREE.Group();
+      pivot.position.set(x, 0.24, z);
+      pivot.add(mesh(wheelGeo, dark), mesh(treadGeo, dark), mesh(hubGeo, grey), mesh(spokeGeo, grey)); // spoke shows rotation
+      body.add(pivot);
+      wheelPivots.push(pivot);
     }
   }
 
   return {
     group: g,
     body,
+    wheels: wheelPivots,
     /** World-space front tow point (where the cable clamps). */
     hitchLocal: new THREE.Vector3(0, 0.62, 0.8),
     /** 0 = clean panels, 1 = covered in dust. */

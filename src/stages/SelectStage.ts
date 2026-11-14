@@ -113,7 +113,7 @@ export class SelectStage implements Stage {
     this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 8, 1, true), this.beamMat);
     this.scene.add(this.beam);
 
-    this.composer = new EffectComposer(renderer);
+    this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.6, 0.85));
     this.composer.addPass(new OutputPass());
@@ -198,6 +198,7 @@ export class SelectStage implements Stage {
   resize(w: number, h: number) {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.composer.setPixelRatio(this.composer.renderer.getPixelRatio());
     this.composer.setSize(w, h);
   }
   dispose() {

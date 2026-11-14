@@ -30,6 +30,12 @@ export const ASSET_JOBS: AssetJob[] = [
   { key: 'jezeroHeight', url: '/data/jezero_height.bin', kind: 'binary', kb: 1150, label: 'Jezero crater terrain · HiRISE elevation model' },
   { key: 'jezeroMeta', url: '/data/jezero.json', kind: 'json', kb: 1, label: 'Jezero crater terrain · metadata' },
   { key: 'jezeroOrtho', url: '/data/jezero_ortho.jpg', kind: 'texture', kb: 345, label: 'Jezero crater imagery · MRO HiRISE', srgb: true },
+  { key: 'soilDiff', url: '/textures/pbr/soil_diff.jpg', kind: 'texture', kb: 690, label: 'Surface detail · soil (Poly Haven CC0)', srgb: true },
+  { key: 'soilNor', url: '/textures/pbr/soil_nor.jpg', kind: 'texture', kb: 1888, label: 'Surface detail · soil normals' },
+  { key: 'soilArm', url: '/textures/pbr/soil_arm.jpg', kind: 'texture', kb: 217, label: 'Surface detail · soil roughness' },
+  { key: 'rockDiff', url: '/textures/pbr/rock_diff.jpg', kind: 'texture', kb: 300, label: 'Surface detail · rock (Poly Haven CC0)', srgb: true },
+  { key: 'rockNor', url: '/textures/pbr/rock_nor.jpg', kind: 'texture', kb: 202, label: 'Surface detail · rock normals' },
+  { key: 'rockArm', url: '/textures/pbr/rock_arm.jpg', kind: 'texture', kb: 21, label: 'Surface detail · rock roughness' },
   { key: 'rover', url: '/models/perseverance.glb', kind: 'gltf', kb: 4870, label: 'Rover model · NASA/JPL-Caltech Perseverance' },
   { key: 'hubble', url: '/models/hubble.glb', kind: 'gltf', kb: 1655, label: 'Hubble Space Telescope model · NASA' },
 ];

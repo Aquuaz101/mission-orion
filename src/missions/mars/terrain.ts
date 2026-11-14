@@ -37,19 +37,39 @@ export class Terrain {
     this.slopes = this.computeSlopes();
 
     const albedo = this.buildAlbedo(assets.textures.jezeroOrtho ?? null);
-    this.material = new THREE.MeshStandardMaterial({ map: albedo, roughness: 0.95, metalness: 0, normalMap: detail.normal, normalScale: new THREE.Vector2(1.1, 1.1) });
-    detail.normal.repeat.set(this.size / 6, this.size / 6);
+    // Close-range surface: photographed red gravelly soil (Poly Haven, CC0), tiled every ~3.5 m,
+    // modulated by the real HiRISE-derived macro albedo. Falls back to procedural detail.
+    const soil = assets.textures.soilDiff ?? null, soilN = assets.textures.soilNor ?? null, soilR = assets.textures.soilArm ?? null;
+    const tile = this.size / 3.5;
+    for (const t of [soil, soilN, soilR, detail.normal]) if (t) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(tile, tile); t.anisotropy = 8; t.needsUpdate = true; }
+    this.material = new THREE.MeshStandardMaterial({
+      map: albedo,
+      roughness: 1,
+      roughnessMap: soilR,
+      metalness: 0,
+      normalMap: soilN ?? detail.normal,
+      normalScale: new THREE.Vector2(1.35, 1.35),
+    });
     this.material.onBeforeCompile = (sh) => {
-      sh.uniforms.detailMap = { value: detail.color };
+      sh.uniforms.soilMap = { value: soil ?? detail.color };
+      sh.uniforms.hasSoil = { value: soil ? 1 : 0 };
       sh.vertexShader = sh.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vWPos;')
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
       sh.fragmentShader = sh.fragmentShader
-        .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; uniform sampler2D detailMap;')
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWPos; uniform sampler2D soilMap; uniform float hasSoil;')
         .replace('#include <map_fragment>', `#include <map_fragment>
-          float d1 = texture2D(detailMap, vWPos.xz / 4.0).r;
-          float d2 = texture2D(detailMap, vWPos.xz / 31.0).g;
-          diffuseColor.rgb *= mix(0.8, 1.18, d1) * mix(0.86, 1.12, d2);`);
+          if (hasSoil > 0.5) {
+            // two scales + rotation to hide tiling; macro albedo (HiRISE) supplies large-scale variation
+            vec3 s1 = texture2D(soilMap, vWPos.xz / 3.5).rgb;
+            vec3 s2 = texture2D(soilMap, mat2(0.8, -0.6, 0.6, 0.8) * vWPos.xz / 13.0).rgb;
+            float far = smoothstep(25.0, 140.0, length(vWPos - cameraPosition));
+            vec3 soilC = mix(mix(s1, s2, 0.35), s2, far);
+            diffuseColor.rgb = soilC * diffuseColor.rgb * 3.1;
+          } else {
+            float d1 = texture2D(soilMap, vWPos.xz / 4.0).r;
+            diffuseColor.rgb *= mix(0.8, 1.18, d1);
+          }`);
     };
 
     // Tiles: shared material, ~2 m vertex spacing, each its own bounding sphere for culling.
@@ -157,7 +177,8 @@ export class Terrain {
     const LS = 512; // low-res luminance copy for rock placement
     this.lum = new Float32Array(LS * LS);
     this.lumSize = LS;
-    const sand = [0.34, 0.18, 0.105], rock = [0.7, 0.47, 0.32], dark = [0.2, 0.11, 0.07], steepC = [0.52, 0.33, 0.22];
+    // Macro tint (multiplied with the soil photo): dark basaltic sand → lighter, slightly paler bedrock.
+    const sand = [0.3, 0.27, 0.26], rock = [0.46, 0.4, 0.36], dark = [0.2, 0.19, 0.19], steepC = [0.4, 0.33, 0.29];
     const toS = (v: number) => Math.round(Math.pow(Math.min(1, v), 1 / 2.2) * 255);
     const n = this.n;
     for (let y = 0; y < S; y++) {

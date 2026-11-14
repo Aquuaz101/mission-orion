@@ -293,6 +293,7 @@ export class JupiterStage implements Stage {
 
   resize(w: number, h: number) {
     this.aspect = w / h;
+    this.composer.setPixelRatio(this.composer.renderer.getPixelRatio());
     this.composer.setSize(w, h);
     this.scope.uniforms.resolution.value.set(w, h);
   }
