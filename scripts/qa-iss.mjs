@@ -12,8 +12,8 @@ pc.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && erro
 const shot = (n) => pc.screenshot({ path: `${OUT}/${n}.png` });
 
 await pc.goto('http://localhost:5173');
-await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
-await pc.click('.begin'); await pc.waitForTimeout(1000);
+await pc.waitForSelector('.intro', { timeout: 60000 });
+await pc.click('.intro'); await pc.waitForTimeout(150); await pc.keyboard.press('Escape'); await pc.waitForTimeout(1000);
 await pc.click('.cod-item[data-a="start"]'); await pc.waitForTimeout(500);
 await pc.click('.choice[data-m="device"]'); await pc.waitForSelector('.ms'); await pc.waitForTimeout(800);
 await pc.click('.ms-card[data-id="iss"]');

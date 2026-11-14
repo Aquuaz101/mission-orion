@@ -1,60 +1,53 @@
+/* ACE subtitles: console-shooter style. No box, just "ACE:" in blue and the line in white,
+   with a heavy shadow so it reads over any scene. */
 .commander {
   position: fixed;
   left: 50%;
-  bottom: calc(28px + env(safe-area-inset-bottom, 0px));
-  width: min(760px, calc(100vw - 32px));
-  transform: translate(-50%, 18px);
+  bottom: calc(clamp(56px, 9vh, 96px) + env(safe-area-inset-bottom, 0px));
+  width: min(1040px, calc(100vw - 48px));
+  transform: translate(-50%, 8px);
   opacity: 0;
   pointer-events: none;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 18px;
-  align-items: center;
-  padding: 16px 20px 16px 16px;
-  background: linear-gradient(90deg, rgba(6, 12, 24, 0.92), rgba(8, 16, 30, 0.78));
-  border: 1px solid var(--c-line);
-  border-left: 2px solid var(--c-cyan);
-  border-radius: var(--radius);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: opacity 0.45s var(--ease-out), transform 0.45s var(--ease-out), border-color 0.3s;
+  text-align: center;
+  transition: opacity 0.35s var(--ease-out), transform 0.35s var(--ease-out);
   z-index: 40;
 }
 .commander.show { opacity: 1; transform: translate(-50%, 0); }
-.commander.alert { border-left-color: var(--c-orange); background: linear-gradient(90deg, rgba(40, 14, 4, 0.92), rgba(24, 10, 6, 0.8)); }
 
-.cmd-badge { display: flex; align-items: center; gap: 12px; padding-right: 18px; border-right: 1px solid var(--c-line); }
-.cmd-name { font-family: var(--f-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.32em; color: var(--c-cyan); }
-
-/* ACE core: a glowing ring that breathes while idle and pulses while speaking */
-.cmd-core { position: relative; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--c-cyan); box-shadow: 0 0 10px rgba(79, 216, 255, 0.45), inset 0 0 8px rgba(79, 216, 255, 0.35); animation: core-idle 3.2s ease-in-out infinite; }
-.cmd-core::before { content: ''; position: absolute; inset: 4px; border-radius: 50%; border: 1px dashed rgba(79, 216, 255, 0.6); animation: core-spin 6s linear infinite; }
-.cmd-core i { position: absolute; inset: 10px; border-radius: 50%; background: radial-gradient(circle, #e6fbff 0%, var(--c-cyan) 55%, transparent 75%); }
-.commander.speaking .cmd-core { animation: core-talk 0.42s ease-in-out infinite alternate; }
-.commander.speaking .cmd-core::before { animation-duration: 1.6s; }
-.commander.alert .cmd-core { border-color: var(--c-orange); box-shadow: 0 0 12px rgba(255, 122, 47, 0.55), inset 0 0 8px rgba(255, 122, 47, 0.35); }
-.commander.alert .cmd-core::before { border-color: rgba(255, 122, 47, 0.7); }
-.commander.alert .cmd-core i { background: radial-gradient(circle, #fff0e6 0%, var(--c-orange) 55%, transparent 75%); }
-@keyframes core-idle { 0%, 100% { box-shadow: 0 0 6px rgba(79, 216, 255, 0.3), inset 0 0 6px rgba(79, 216, 255, 0.25); } 50% { box-shadow: 0 0 14px rgba(79, 216, 255, 0.55), inset 0 0 10px rgba(79, 216, 255, 0.4); } }
-@keyframes core-talk { from { transform: scale(0.94); } to { transform: scale(1.06); } }
-@keyframes core-spin { to { transform: rotate(360deg); } }
-.commander.alert .cmd-name { color: var(--c-orange); }
-.cmd-role { font-size: 11px; color: var(--c-muted); margin-top: 3px; white-space: nowrap; }
-
-.cmd-wave { display: flex; gap: 3px; align-items: center; height: 28px; width: 28px; justify-content: center; margin-left: 4px; }
-.cmd-wave i { width: 3px; height: 6px; background: var(--c-cyan); border-radius: 2px; opacity: 0.55; }
-.commander.alert .cmd-wave i { background: var(--c-orange); }
-.commander.speaking .cmd-wave i { animation: wave 0.9s ease-in-out infinite; opacity: 1; }
-.cmd-wave i:nth-child(2) { animation-delay: 0.12s !important; }
-.cmd-wave i:nth-child(3) { animation-delay: 0.24s !important; }
-.cmd-wave i:nth-child(4) { animation-delay: 0.36s !important; }
-.cmd-wave i:nth-child(5) { animation-delay: 0.48s !important; }
-@keyframes wave { 0%, 100% { height: 5px; } 50% { height: 22px; } }
-
-.cmd-text { font-size: 16px; line-height: 1.5; color: var(--c-text); min-height: 24px; }
-.cmd-skip { position: absolute; right: 12px; top: -26px; font-size: 11px; color: var(--c-dim); display: flex; gap: 6px; align-items: center; }
-
-@media (max-width: 640px) {
-  .commander { grid-template-columns: 1fr; gap: 10px; }
-  .cmd-badge { border-right: 0; padding-right: 0; }
+.cmd-line {
+  margin: 0;
+  display: inline;
+  font-size: clamp(16px, 1.25vw, 21px);
+  line-height: 1.55;
+  font-weight: 500;
+  color: #f3f6fa;
+  letter-spacing: 0.005em;
+  text-shadow: 0 0 2px #000, 0 1px 2px #000, 0 2px 10px rgba(0, 0, 0, 0.85), 0 0 28px rgba(0, 0, 0, 0.6);
+  /* a very soft dark band behind the text, only as wide as the words (no border, no box) */
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.32) 8%, rgba(0, 0, 0, 0.32) 92%, transparent);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  padding: 2px 14px;
 }
+.cmd-name {
+  color: #5fd3ff;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+  text-shadow: 0 0 2px #000, 0 1px 2px #000, 0 0 14px rgba(70, 190, 255, 0.45);
+}
+.commander.alert .cmd-name { color: #ff8a3d; text-shadow: 0 0 2px #000, 0 1px 2px #000, 0 0 14px rgba(255, 120, 50, 0.45); }
+.cmd-text { min-height: 1em; }
+
+.cmd-skip {
+  margin-top: 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(220, 230, 240, 0.45);
+  display: flex; gap: 6px; align-items: center; justify-content: center;
+  text-shadow: 0 1px 3px #000;
+  opacity: 0; transition: opacity 0.4s 0.6s;
+}
+.commander.show .cmd-skip { opacity: 1; }
+#ui:has(.ms) .commander { bottom: 268px; }

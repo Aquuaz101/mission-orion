@@ -181,6 +181,11 @@ export class JupiterMission implements Mission {
   }
 
   // ───────────────────────────────────────────────────────── objectives
+  pauseInfo() {
+    const o = OBJECTIVES[Math.min(this.objectiveIndex, OBJECTIVES.length - 1)];
+    return { objective: this.objectiveIndex >= OBJECTIVES.length ? 'Observations complete' : `${o.code} · ${o.short}`, fact: o.success[o.success.length - 1] };
+  }
+
   private get objective() {
     return OBJECTIVES[this.objectiveIndex];
   }

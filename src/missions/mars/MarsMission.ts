@@ -729,6 +729,11 @@ export class MarsMission implements Mission {
     return el;
   }
 
+  pauseInfo() {
+    const facts = Object.values(SAMPLES).flatMap((s) => s.facts);
+    return { objective: this.objectiveText()[0], fact: this.phase.startsWith('emergency') ? LINES.stormFact : facts[Math.floor(Math.random() * facts.length)] };
+  }
+
   private objectiveText(): [string, string] {
     switch (this.phase) {
       case 'intro': return ['Stand by', ''];

@@ -15,25 +15,22 @@ export function sounds(root: HTMLElement, sfx: Sfx) {
 }
 
 // ─────────────────────────────────────────────────────────────── Loading
+/** Lean black boot screen: a thin progress bar; the wordmark is saved for the intro. */
 export function loadingScreen() {
   const el = html(`
     <section class="loading">
       <div class="loading-center">
-        <div class="eyebrow fade-up" style="animation-delay:.2s">Remote mission operations simulator</div>
-        <h1 class="title fade-up" style="animation-delay:.45s">${TITLE_SVG}</h1>
-        <p class="tagline fade-up" style="animation-delay:.8s">Bring the NASA experience to your home.</p>
-        <div class="progress fade-up" style="animation-delay:1.1s">
+        <div class="boot-mark">Mission<em>:</em>Orion</div>
+        <div class="progress">
           <div class="progress-track"><div class="progress-fill"></div></div>
-          <div class="progress-meta mono"><span class="progress-label">Initializing mission systems…</span><span class="progress-pct">0%</span></div>
+          <div class="progress-meta mono"><span class="progress-label"></span><span class="progress-pct">0%</span></div>
         </div>
-        <button class="begin btn primary" hidden>Begin <span class="kbd">CLICK</span></button>
       </div>
-      <div class="loading-foot mono">
-        <span>Background: the real night sky from NASA's Tycho star map, with the constellation <b>Orion</b> highlighted</span>
-      </div>
+      <div class="boot-asset mono">Initializing mission systems…</div>
+      <div class="boot-spin"></div>
     </section>`);
   const fill = $(el, '.progress-fill');
-  const label = $(el, '.progress-label');
+  const label = $(el, '.boot-asset');
   const pct = $(el, '.progress-pct');
   return {
     el,
@@ -46,21 +43,12 @@ export function loadingScreen() {
       label.textContent = msg;
       el.classList.add('has-error');
     },
-    /** Shows the Begin prompt (needed so audio/voice can start). */
+    /** Loading finished: a short beat, then the intro takes over. */
     ready(): Promise<void> {
       label.textContent = 'All mission systems nominal';
       $(el, '.progress').classList.add('done');
-      const btn = $(el, '.begin');
-      btn.hidden = false;
-      btn.classList.add('fade-up');
-      return new Promise((resolve) => {
-        const go = () => {
-          window.removeEventListener('keydown', go);
-          resolve();
-        };
-        btn.addEventListener('click', go);
-        window.addEventListener('keydown', go);
-      });
+      el.querySelector('.boot-spin')?.remove();
+      return new Promise((r) => setTimeout(r, 450));
     },
   };
 }

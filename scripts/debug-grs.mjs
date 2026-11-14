@@ -4,8 +4,8 @@ const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google
 const pc = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 pc.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await pc.goto('http://localhost:5173');
-await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
-await pc.click('.begin'); await pc.waitForTimeout(800);
+await pc.waitForSelector('.intro', { timeout: 60000 });
+await pc.click('.intro'); await pc.waitForTimeout(150); await pc.keyboard.press('Escape'); await pc.waitForTimeout(800);
 await pc.click('[data-a="start"]'); await pc.waitForTimeout(600);
 await pc.click('.choice[data-m="device"]'); await pc.waitForSelector('.mission[data-id="jupiter"]'); await pc.waitForTimeout(700);
 await pc.click('.mission[data-id="jupiter"]'); await pc.waitForSelector('.briefing'); await pc.waitForTimeout(500);

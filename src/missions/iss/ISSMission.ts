@@ -42,6 +42,10 @@ export class ISSMission implements Mission {
     return exit;
   }
   abort(exit: MissionExit) { this.finish(exit); }
+  pauseInfo() {
+    const f = FACTS[Math.floor(Math.random() * FACTS.length)];
+    return { objective: this.objective || 'Prepare for the spacewalk', fact: `${f[1]}` };
+  }
   setPaused(p: boolean) {
     this.paused = p;
     if (this.stage) this.stage.paused = p;

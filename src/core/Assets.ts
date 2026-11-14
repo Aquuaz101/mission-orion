@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 
 /**
  * Loads every asset up front with *real* progress (weighted by file size, with
@@ -18,6 +19,7 @@ export interface AssetJob {
 }
 
 export const ASSET_JOBS: AssetJob[] = [
+  { key: 'menuPhoto', url: '/images/menu_hubble_earth.jpg', kind: 'texture', kb: 350, label: 'Hubble over Earth · NASA STS-109 photograph', srgb: true },
   { key: 'stars', url: '/textures/stars.jpg', kind: 'texture', kb: 1700, label: 'Star catalogue · NASA Tycho star map', required: true, srgb: true },
   { key: 'earthDay', url: '/textures/earth_day.jpg', kind: 'texture', kb: 230, label: 'Earth imagery · NASA Blue Marble', srgb: true },
   { key: 'earthNight', url: '/textures/earth_night.jpg', kind: 'texture', kb: 440, label: 'Earth at night · NASA Black Marble', srgb: true },
@@ -64,9 +66,7 @@ export class Assets {
       onProgress(Math.min(1, done / total), currentLabel);
     };
 
-    // NASA's models are Draco-compressed; the decoder ships in /public/draco (offline-safe).
-    const draco = new DRACOLoader().setDecoderPath('/draco/');
-    const gltfLoader = new GLTFLoader().setDRACOLoader(draco);
+    const gltfLoader = this.gltfLoader();
     const texLoader = new THREE.TextureLoader();
 
     // A few parallel downloads; the label tracks the most recently started file.
@@ -92,6 +92,19 @@ export class Assets {
       }
     };
     await Promise.all([worker(), worker(), worker()]);
+  }
+
+  private loader: GLTFLoader | null = null;
+  private gltfLoader() {
+    // Draco (NASA rover/Hubble) + meshopt (packed ISS) decoders, both bundled for offline use.
+    return (this.loader ??= new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath('/draco/')).setMeshoptDecoder(MeshoptDecoder));
+  }
+
+  /** Load a large model on demand (not at boot). Cached. */
+  async loadModel(key: string, url: string, onProgress?: (f: number) => void) {
+    if (this.models[key]) return this.models[key];
+    this.models[key] = await this.gltfLoader().loadAsync(url, (e) => { if (e.lengthComputable && e.total) onProgress?.(e.loaded / e.total); });
+    return this.models[key];
   }
 
   private async loadOne(job: AssetJob, gltf: GLTFLoader, tex: THREE.TextureLoader, progress: (f: number) => void) {

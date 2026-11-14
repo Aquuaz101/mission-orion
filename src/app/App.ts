@@ -6,10 +6,10 @@ import { Sfx, type Mix } from '../core/Sfx';
 import { ACE_LINES } from '../core/aceLines';
 import { Commander } from '../core/Commander';
 import { SpaceStage } from '../stages/SpaceStage';
-import { ScreenHost, html, openModal, $, $$, wait } from '../ui/dom';
-import * as THREE from 'three';
+import { ScreenHost, html, openModal, $, $$, wait, escapeHtml } from '../ui/dom';
+import { playIntro } from '../ui/intro';
 import { loadingScreen, controlSelect, pairingScreen, howToPlayHtml, sourcesHtml, creditsHtml } from '../ui/screens';
-import { codMainMenu, codMissionSelect, type CodMenuAction } from '../ui/codScreens';
+import { codMainMenu, codMissionSelect, arrowNav, type CodMenuAction } from '../ui/codScreens';
 import { SelectStage } from '../stages/SelectStage';
 import { missionEntries, MISSIONS } from '../missions/registry';
 
@@ -85,11 +85,38 @@ export class App {
     await wait(300);
 
     await loading.ready();
+
+    // Cold open → main menu. Sound starts at the first click/key press the browser allows.
+    this.space.setShot('menu', 0.45);
+    if (navigator.userActivation?.hasBeenActive) this.startAudio();
+    await playIntro({
+      audioReady: () => this.audioStarted && this.sfx.context?.state === 'running',
+      startAudio: () => this.startAudio(),
+      onLine: () => { if (this.audioStarted) this.sfx.riser(0.9); },
+      onLogo: () => {
+        if (!this.audioStarted) return;
+        this.sfx.impact(0.9);
+        this.sfx.setMusic('menu');
+        this.sfx.setMusicFocus(1);
+      },
+      onReveal: () => this.showMenu(),
+    });
+    // no press during the intro: start the audio on the first one in the menu
+    if (!this.audioStarted) {
+      const first = () => this.startAudio();
+      window.addEventListener('pointerdown', first, { once: true, capture: true });
+      window.addEventListener('keydown', first, { once: true, capture: true });
+    }
+  }
+
+  private audioStarted = false;
+  /** Create/resume the audio context (must run inside a user gesture the first time) and start the beds. */
+  startAudio() {
     this.sfx.unlock();
+    if (this.audioStarted) return;
+    this.audioStarted = true;
     this.sfx.setAmbience('space');
     this.sfx.setMusic('menu');
-    this.sfx.confirm();
-    this.showMenu();
   }
 
   // ───────────────────────────────────────────── menu flow
@@ -100,9 +127,7 @@ export class App {
     this.engine.setStage(this.space);
     this.space.setShot('menu', 0.45);
     this.space.setOrionHighlight(0.6);
-    const hubble = this.assets.models.hubble?.scene;
-    // Hubble in silhouette against the orbital sunrise (sits between camera and Sun)
-    if (hubble) this.space.showModel(hubble.clone(true), 3.4, { silhouette: true, position: new THREE.Vector3(3.9, -0.05, 14.2) });
+    this.space.showModel(null); // the menu uses a real NASA photograph as its backdrop
     this.link.send({ t: 'layout', layout: 'lobby', title: 'Controller linked', subtitle: 'Follow the main screen' });
     this.sfx.setMusic('menu');
     this.sfx.setMusicFocus(1);
@@ -216,6 +241,8 @@ export class App {
     const Ctor = await load();
     const mission = new Ctor(this);
     this.mission = mission;
+    this.missionId = id;
+    this.missionStart = performance.now();
     const exit = await mission.start();
     this.closePause();
     mission.dispose();
@@ -234,36 +261,78 @@ export class App {
 
   // ───────────────────────────────────────────── pause menu
   private pauseEl: HTMLElement | null = null;
+  private missionId = '';
+  private missionStart = 0;
+  private pausedAt = 0;
 
   private togglePause() {
     if (!this.mission) return;
     if (this.pauseEl) return this.closePause();
+    if (document.querySelector('.modal-backdrop')) return;
     this.mission.setPaused(true);
+    this.pausedAt = performance.now();
     this.commander.clear();
     this.sfx.back();
     this.sfx.setPaused(true);
     const other = this.mode === 'phone' ? 'device' : 'phone';
+    const info = MISSIONS.find((m) => m.id === this.missionId);
+    const pi = this.mission.pauseInfo?.() ?? { objective: info?.description ?? '' };
+    const mins = Math.max(0, (this.pausedAt - this.missionStart) / 1000);
+    const elapsed = `${Math.floor(mins / 60)}:${String(Math.floor(mins % 60)).padStart(2, '0')}`;
+    const items: [string, string][] = [
+      ['resume', 'Resume'],
+      ['restart', 'Restart Mission'],
+      ['settings', 'Settings'],
+      ['howto', 'Controls'],
+      ['switch', `Switch to ${other === 'phone' ? 'Phone Controller' : 'Keyboard & Mouse'}`],
+      ['abort', 'Abort Mission'],
+    ];
     const el = html(`
       <div class="pause-backdrop">
-        <div class="pause panel brackets">
-          <div class="eyebrow">Mission paused</div>
-          <h2>Operator console</h2>
-          <nav>
-            <button class="btn primary" data-a="resume">Resume <span class="kbd">ESC</span></button>
-            <button class="btn" data-a="howto">How to play</button>
-            <button class="btn" data-a="switch">Switch to ${other === 'phone' ? 'phone controller' : 'keyboard &amp; mouse'}</button>
-            <button class="btn" data-a="restart">Restart mission</button>
-            <button class="btn ghost" data-a="abort">Abort to mission select</button>
-          </nav>
+        <div class="pz-shade"></div>
+        <div class="cod-grain"></div>
+        <header class="pz-head">
+          <div class="pz-eyebrow mono"><i></i>Mission ${info?.code ?? ''} · Paused</div>
+          <h1 class="pz-title">${escapeHtml(info?.subtitle ?? 'Mission')}</h1>
+          <div class="pz-obj"><span class="mono">Current objective</span><b>${escapeHtml(pi.objective)}</b></div>
+        </header>
+        <nav class="pz-nav">${items.map(([a, l], i) => `<button class="cod-item pz-item${a === 'abort' ? ' danger' : ''}" data-a="${a}" style="animation-delay:${0.04 + i * 0.045}s"><span>${escapeHtml(l)}</span></button>`).join('')}</nav>
+        <aside class="pz-intel">
+          <div class="pz-intel-head mono">Mission intel</div>
+          <dl class="mono">
+            <div><dt>Mission</dt><dd>${escapeHtml(info?.title ?? '')}</dd></div>
+            <div><dt>Instrument</dt><dd>${escapeHtml(info?.instrument ?? '')}</dd></div>
+            <div><dt>Time in mission</dt><dd>${elapsed}</dd></div>
+            <div><dt>Controls</dt><dd>${this.mode === 'phone' ? 'Phone controller' : 'Keyboard &amp; mouse'}</dd></div>
+            <div><dt>Controller link</dt><dd class="${this.link.peerConnected ? 'ok' : ''}">${this.link.peerConnected ? 'Connected' : 'Not connected'}</dd></div>
+          </dl>
+          ${pi.fact ? `<div class="pz-fact"><span class="mono">Did you know</span><p>${escapeHtml(pi.fact)}</p></div>` : ''}
           <div class="pause-qr" hidden></div>
-        </div>
+        </aside>
+        <footer class="pz-hint mono"><span class="kbd">↑</span><span class="kbd">↓</span> navigate <span class="kbd">ENTER</span> select <span class="kbd">ESC</span> resume</footer>
       </div>`);
+    const confirmable = new Set(['restart', 'abort']);
+    let armed = '';
+    let armTimer = 0;
     el.addEventListener('click', async (e) => {
-      const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
-      if (!a) return;
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-a]');
+      const a = btn?.dataset.a;
+      if (!a || !btn) return;
+      // restart / abort need a second press: "Press again to confirm"
+      if (confirmable.has(a) && armed !== a) {
+        this.sfx.error();
+        el.querySelectorAll('.pz-item.armed').forEach((b) => { b.classList.remove('armed'); (b.querySelector('span') as HTMLElement).textContent = items.find(([k]) => k === (b as HTMLElement).dataset.a)![1]; });
+        armed = a;
+        btn.classList.add('armed');
+        btn.querySelector('span')!.textContent = a === 'abort' ? 'Abort? Press again to confirm' : 'Restart? Press again to confirm';
+        clearTimeout(armTimer);
+        armTimer = window.setTimeout(() => { armed = ''; btn.classList.remove('armed'); btn.querySelector('span')!.textContent = items.find(([k]) => k === a)![1]; }, 3000);
+        return;
+      }
       this.sfx.click();
       if (a === 'resume') this.closePause();
-      if (a === 'howto') void openModal('How to play', howToPlayHtml(), () => this.sfx.back());
+      if (a === 'howto') void openModal('Controls', howToPlayHtml(), () => this.sfx.back());
+      if (a === 'settings') void openModal('Settings', this.settingsPanel(), () => this.sfx.back());
       if (a === 'restart') this.mission?.abort({ to: 'restart' });
       if (a === 'abort') this.mission?.abort({ to: 'select' });
       if (a === 'switch') {
@@ -273,15 +342,18 @@ export class App {
           const box = $(el, '.pause-qr');
           box.hidden = false;
           const url = this.link.controllerUrl;
-          box.innerHTML = `<canvas></canvas><div class="mono">PIN <b>${this.link.pin ?? '----'}</b><br>${url ?? 'No network'}</div>`;
-          if (url) void (await import('qrcode')).default.toCanvas(box.querySelector('canvas')!, url, { width: 150, margin: 1, color: { dark: '#e9eef6', light: '#00000000' } });
+          box.innerHTML = `<canvas></canvas><div class="mono">Scan to connect · PIN <b>${this.link.pin ?? '----'}</b><br>${url ?? 'No network'}</div>`;
+          if (url) void (await import('qrcode')).default.toCanvas(box.querySelector('canvas')!, url, { width: 132, margin: 1, color: { dark: '#e9eef6', light: '#00000000' } });
         } else this.closePause();
         this.toast(other === 'phone' ? 'Phone controller mode' : 'Keyboard & mouse mode');
       }
     });
+    const navItems = $$(el, '.pz-item');
+    for (const b of navItems) b.addEventListener('focus', () => this.sfx.hover());
+    arrowNav(el, navItems, this.sfx);
     this.pauseEl = el;
     this.ui.appendChild(el);
-    requestAnimationFrame(() => el.classList.add('in'));
+    requestAnimationFrame(() => { el.classList.add('in'); navItems[0]?.focus({ preventScroll: true }); });
   }
 
   private closePause() {

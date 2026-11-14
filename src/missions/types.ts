@@ -7,6 +7,8 @@ export interface Mission {
   abort(exit: MissionExit): void;
   /** Free GPU/DOM resources. Safe to call more than once. */
   dispose(): void;
+  /** Shown in the pause menu: the current objective and a short real-science fact. */
+  pauseInfo?(): { objective: string; fact?: string };
 }
 
 export type MissionExit = { to: 'select' } | { to: 'mission'; id: string } | { to: 'restart' };

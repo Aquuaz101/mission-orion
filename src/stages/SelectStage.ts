@@ -48,77 +48,168 @@ export class SelectStage implements Stage {
   private grade: ShaderPass;
   private planets: Record<'earth' | 'mars' | 'jupiter', THREE.Mesh>;
   private sky: THREE.Mesh;
-  private beam: THREE.Mesh;
-  private beamMat: THREE.ShaderMaterial;
+  private mapMat: THREE.ShaderMaterial;
+  private earthMat: THREE.ShaderMaterial;
+  private beams: Partial<Record<'mars' | 'jupiter', THREE.Group>> = {};
+  private ring: THREE.Mesh;
+  private ringMat: THREE.ShaderMaterial;
+  private corona: THREE.Sprite[] = [];
   private focus: Focus = 'overview';
-  private camPos = new THREE.Vector3(0, 24, 27);
-  private lookPos = new THREE.Vector3(0, 0, 1);
-  private camTarget = new THREE.Vector3(0, 24, 27);
-  private lookTarget = new THREE.Vector3(0, 0, 1);
-  private satTarget = 0.35;
+  private camPos = new THREE.Vector3(-7, 24, 27);
+  private lookPos = new THREE.Vector3(-7, 0, 1);
+  private camTarget = new THREE.Vector3(-7, 24, 27);
+  private lookTarget = new THREE.Vector3(-7, 0, 1);
+  private satTarget = 0.55;
   private diving = false;
   private elapsed = 0;
 
   constructor(assets: Assets, renderer: THREE.WebGLRenderer) {
-    this.sky = createStarSphere(assets.textures.stars!, 1500, 0.9);
+    const T = assets.textures;
+    this.sky = createStarSphere(T.stars!, 1500, 0.9);
     this.scene.add(this.sky);
 
-    // Sun
+    // ── Sun: white-hot core, layered warm corona, slow-turning star streaks (bloom does the rest)
     const sun = new THREE.Group();
-    sun.add(new THREE.Mesh(new THREE.SphereGeometry(0.9, 32, 16), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(4, 3.4, 2.4) })));
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(256, [[0, 'rgba(255,240,215,0.9)'], [0.2, 'rgba(255,200,140,0.25)'], [1, 'rgba(255,180,120,0)']]), blending: THREE.AdditiveBlending, depthWrite: false }));
-    glow.scale.setScalar(9);
-    sun.add(glow);
-    this.scene.add(sun);
-    this.scene.add(new THREE.PointLight(0xfff1dd, 2.4, 0, 0));
-    this.scene.add(new THREE.AmbientLight(0x6a7a96, 0.18));
-
-    // Orbits (dashed, map-like)
-    for (const r of Object.values(ORBITS)) {
-      const pts = Array.from({ length: 257 }, (_, i) => { const a = (i / 256) * Math.PI * 2; return new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r); });
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0x9fb2cc, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity: 0.35 }));
-      line.computeLineDistances();
-      this.scene.add(line);
+    sun.add(new THREE.Mesh(new THREE.SphereGeometry(0.8, 48, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color().setRGB(5, 4.2, 3) })));
+    const layers: [number, [number, string][]][] = [
+      [3.2, [[0, 'rgba(255,250,240,0.95)'], [0.25, 'rgba(255,220,170,0.45)'], [1, 'rgba(255,190,120,0)']]],
+      [8, [[0, 'rgba(255,214,160,0.35)'], [0.35, 'rgba(255,170,100,0.08)'], [1, 'rgba(255,140,80,0)']]],
+      [18, [[0, 'rgba(255,190,130,0.10)'], [1, 'rgba(255,150,90,0)']]],
+    ];
+    for (const [size, stops] of layers) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(256, stops), blending: THREE.AdditiveBlending, depthWrite: false }));
+      sp.scale.setScalar(size);
+      sun.add(sp);
     }
-    // Faint grid plane: the "map table"
-    const grid = new THREE.PolarGridHelper(22, 16, 8, 128, 0x23324a, 0x162236);
-    (grid.material as THREE.Material).transparent = true;
-    (grid.material as THREE.Material).opacity = 0.35;
-    this.scene.add(grid);
+    for (const rot of [0, 0.5]) {
+      const st = new THREE.Sprite(new THREE.SpriteMaterial({ map: streakTexture(), blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5, rotation: rot }));
+      st.scale.setScalar(11);
+      sun.add(st);
+      this.corona.push(st);
+    }
+    this.scene.add(sun);
+    this.scene.add(new THREE.PointLight(0xfff1dd, 3.1, 0, 0));
+    this.scene.add(new THREE.HemisphereLight(0x3a4c6e, 0x0a0d14, 0.35)); // faint fill so night sides are not pure black
 
+    // ── "Map table": smooth anti-aliased orbit rings drawn per pixel, with a bright trail behind each planet
+    this.mapMat = new THREE.ShaderMaterial({
+      uniforms: { radii: { value: new THREE.Vector3(ORBITS.earth, ORBITS.mars, ORBITS.jupiter) }, ang: { value: new THREE.Vector3() }, hi: { value: new THREE.Vector3() }, time: { value: 0 }, pl: { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] } },
+      vertexShader: /* glsl */ `varying vec2 vP; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vP = w.xz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+      fragmentShader: /* glsl */ `
+        uniform vec3 radii, ang, hi; uniform float time; uniform vec3 pl[3]; varying vec2 vP;
+        const float TAU = 6.2831853;
+        vec3 orbit(float r, float a, float R, float pa, float h, float fw) {
+          float d = abs(r - R);
+          float core = 1.0 - smoothstep(fw * 0.6, fw * 1.6, d);
+          float glow = exp(-d / (fw * 7.0 + 0.04));
+          float behind = mod(pa - a + TAU, TAU);           // angle behind the planet (they move counter-clockwise)
+          float trail = exp(-behind * 1.6);
+          vec3 c = mix(vec3(0.45, 0.62, 0.85), vec3(0.55, 0.9, 1.0), h);
+          return c * (core * (0.26 + trail * 1.1 + h * 0.3) + glow * (0.04 + trail * 0.25 + h * 0.1));
+        }
+        void main(){
+          float r = length(vP), a = atan(-vP.y, vP.x);
+          float fw = fwidth(r);
+          vec3 col = orbit(r, a, radii.x, ang.x, hi.x, fw) + orbit(r, a, radii.y, ang.y, hi.y, fw) + orbit(r, a, radii.z, ang.z, hi.z, fw);
+          // faint range rings + a soft sunlit disc on the table
+          float rr = abs(fract(r / 3.0 + 0.5) - 0.5) * 3.0;
+          col += vec3(0.3, 0.42, 0.6) * (1.0 - smoothstep(0.0, fw * 1.4, rr)) * 0.06 * smoothstep(24.0, 6.0, r);
+          col += vec3(1.0, 0.75, 0.45) * exp(-r * 0.32) * 0.07;
+          float alpha = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0) * smoothstep(26.0, 19.0, r);
+          // the table passes through each planet's centre: keep the lines off the discs
+          for (int i = 0; i < 3; i++) alpha *= smoothstep(pl[i].z * 1.02, pl[i].z * 1.25, distance(vP, pl[i].xy));
+          gl_FragColor = vec4(col, alpha);
+        }`,
+      transparent: true, depthWrite: false,
+    });
+    const table = new THREE.Mesh(new THREE.PlaneGeometry(56, 56), this.mapMat);
+    table.rotation.x = -Math.PI / 2;
+    table.position.y = -0.002;
+    this.scene.add(table);
+
+    // ── Planets: Earth with day/night/city lights/clouds; Mars + Jupiter lit by the Sun; thin atmospheres
+    if (T.earthClouds) { T.earthClouds.wrapS = THREE.RepeatWrapping; T.earthClouds.needsUpdate = true; } // clouds drift: wrap, never clamp-smear
+    this.earthMat = earthMaterial(T.earthHd ?? T.earthDay ?? null, T.earthNight ?? null, T.earthClouds ?? null);
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(RADII.earth, 96, 48), this.earthMat);
     const mk = (tex: THREE.Texture | null | undefined, r: number, color: number) =>
-      new THREE.Mesh(new THREE.SphereGeometry(r, 64, 32), new THREE.MeshStandardMaterial({ map: tex ?? null, color: tex ? 0xffffff : color, roughness: 1 }));
-    this.planets = {
-      earth: mk(assets.textures.earthDay, RADII.earth, 0x3366aa),
-      mars: mk(assets.textures.mars, RADII.mars, 0xb05a30),
-      jupiter: mk(assets.textures.jupiter, RADII.jupiter, 0xc8a070),
-    };
+      new THREE.Mesh(new THREE.SphereGeometry(r, 96, 48), new THREE.MeshStandardMaterial({ map: tex ?? null, color: tex ? 0xffffff : color, roughness: 0.95 }));
+    this.planets = { earth, mars: mk(T.mars, RADII.mars, 0xb05a30), jupiter: mk(T.jupiter, RADII.jupiter, 0xc8a070) };
     this.planets.jupiter.scale.y = 0.935;
+    const atmos: Record<string, [number, THREE.Color, number]> = { earth: [1.18, new THREE.Color(0.35, 0.62, 1.0), 1.3], mars: [1.1, new THREE.Color(1.0, 0.55, 0.3), 0.5], jupiter: [1.07, new THREE.Color(1.0, 0.85, 0.65), 0.35] };
+    const angs: number[] = [];
     for (const k of Object.keys(this.planets) as (keyof typeof ORBITS)[]) {
       const lon = THREE.MathUtils.degToRad(meanLongitudeDeg(k));
       // ecliptic longitude measured counter-clockwise seen from ecliptic north (+y)
       this.planets[k].position.set(Math.cos(lon) * ORBITS[k], 0, -Math.sin(lon) * ORBITS[k]);
+      angs.push(Math.atan2(Math.sin(lon), Math.cos(lon)));
       this.scene.add(this.planets[k]);
+      const [sc, col, gain] = atmos[k];
+      const shell = new THREE.Mesh(new THREE.SphereGeometry(RADII[k] * sc, 64, 32), atmosphereMaterial(col, gain, this.planets[k].position, RADII[k] * (k === 'jupiter' ? 0.93 : 0.995), RADII[k] * sc));
+      shell.position.copy(this.planets[k].position);
+      if (k === 'jupiter') shell.scale.y = 0.935;
+      this.scene.add(shell);
     }
+    this.mapMat.uniforms.ang.value.set(angs[0], angs[1], angs[2]);
+    (['earth', 'mars', 'jupiter'] as const).forEach((k, i) => (this.mapMat.uniforms.pl.value as THREE.Vector3[])[i].set(this.planets[k].position.x, this.planets[k].position.z, RADII[k]));
 
-    // Uplink beam from Earth to the selected world.
-    this.beamMat = new THREE.ShaderMaterial({
+    // ── Focus ring around the selected world (billboard, ticks slowly turning)
+    this.ringMat = new THREE.ShaderMaterial({
       uniforms: { time: { value: 0 }, opacity: { value: 0 } },
-      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `uniform float time; uniform float opacity; varying vec2 vUv;
-        void main(){ float pulse = smoothstep(0.0, 0.06, fract(vUv.y - time * 0.5)) * (1.0 - smoothstep(0.06, 0.2, fract(vUv.y - time * 0.5)));
-          gl_FragColor = vec4(vec3(0.55, 0.85, 1.0) * (0.5 + pulse * 2.0), opacity * (0.35 + pulse)); }`,
+      vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: /* glsl */ `
+        uniform float time, opacity; varying vec2 vUv;
+        void main(){
+          vec2 p = vUv * 2.0 - 1.0; float r = length(p), a = atan(p.y, p.x);
+          float fw = fwidth(r);
+          float ring = 1.0 - smoothstep(fw, fw * 2.5, abs(r - 0.86));
+          float ticks = step(0.93, fract((a + time * 0.25) / 6.2831853 * 4.0 + 0.035)) * (1.0 - smoothstep(fw, fw * 2.5, abs(r - 0.94)));
+          float arc = step(0.5, fract((a - time * 0.6) / 6.2831853)) * (1.0 - smoothstep(fw, fw * 3.0, abs(r - 0.98))) * 0.5;
+          float v = max(max(ring * 0.55, ticks), arc);
+          gl_FragColor = vec4(vec3(0.6, 0.9, 1.0) * 1.4, v * opacity);
+        }`,
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
     });
-    this.beam = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 8, 1, true), this.beamMat);
-    this.scene.add(this.beam);
+    this.ring = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.ringMat);
+    this.scene.add(this.ring);
+
+    // ── Uplink: curved data-link arcs from Earth to Mars and Jupiter (flowing pulses)
+    for (const k of ['mars', 'jupiter'] as const) this.beams[k] = this.buildBeam(this.planets.earth.position, this.planets[k].position);
 
     this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.5, 0.6, 0.85));
+    this.composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.42, 0.55, 0.9));
     this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
+  }
+
+  private buildBeam(a: THREE.Vector3, b: THREE.Vector3) {
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    mid.y += a.distanceTo(b) * 0.12;
+    const curve = new THREE.QuadraticBezierCurve3(a.clone(), mid, b.clone());
+    const g = new THREE.Group();
+    for (const [radius, core] of [[0.014, 1], [0.045, 0]] as const) {
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { time: { value: 0 }, opacity: { value: 0 }, core: { value: core } },
+        vertexShader: /* glsl */ `varying vec2 vUv; varying float vDist; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vDist = -mv.z; gl_Position = projectionMatrix * mv; }`,
+        fragmentShader: /* glsl */ `
+          uniform float time, opacity, core; varying vec2 vUv; varying float vDist;
+          void main(){
+            float near = smoothstep(1.5, 5.0, vDist);   // never smear across the lens
+            float s = vUv.x;
+            float pulse = pow(max(0.0, sin((s * 9.0 - time * 1.6) * 3.14159)), 18.0);
+            float ends = smoothstep(0.0, 0.06, s) * smoothstep(1.0, 0.94, s);
+            float edge = core > 0.5 ? 1.0 : pow(1.0 - abs(vUv.y - 0.5) * 2.0, 2.0) * 0.18;
+            vec3 c = vec3(0.45, 0.85, 1.0) * (0.55 + pulse * 3.0);
+            gl_FragColor = vec4(c, opacity * ends * edge * near * (core > 0.5 ? 0.85 : 1.0));
+          }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      g.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 200, radius, 10, false), mat));
+    }
+    g.visible = false;
+    this.scene.add(g);
+    return g;
   }
 
   /** Screen-space label positions for the HTML overlay. */
@@ -135,9 +226,9 @@ export class SelectStage implements Stage {
   setFocus(f: Focus) {
     this.focus = f;
     if (f === 'overview') {
-      this.camTarget.set(0, 24, 27);
-      this.lookTarget.set(0, 0, 1);
-      this.satTarget = 0.35;
+      this.camTarget.set(-7, 24, 27);
+      this.lookTarget.set(-7, 0, 1);
+      this.satTarget = 0.55;
       return;
     }
     const m = this.planets[f];
@@ -148,8 +239,8 @@ export class SelectStage implements Stage {
     // camera on the sunward side (lit hemisphere visible), a little above; planet framed right of centre
     this.camTarget.copy(m.position).addScaledVector(out, -dist * 0.72).addScaledVector(side, dist * 0.62).add(new THREE.Vector3(0, r * 1.6, 0));
     const toCam = this.camTarget.clone().sub(m.position).setY(0).normalize();
-    const right = new THREE.Vector3(toCam.z, 0, -toCam.x); // screen-left direction at the planet
-    this.lookTarget.copy(m.position).addScaledVector(right, r * 1.25);
+    const right = new THREE.Vector3(toCam.z, 0, -toCam.x); // screen-right direction at the planet
+    this.lookTarget.copy(m.position).addScaledVector(right, -dist * 0.36); // look left of the planet → it sits right of centre, clear of the details panel
     this.satTarget = 1;
   }
 
@@ -180,16 +271,34 @@ export class SelectStage implements Stage {
     g.sat.value += (this.satTarget - g.sat.value) * (1 - Math.exp(-dt * 3));
     g.fade.value += ((this.diving ? 1 : 0) - g.fade.value) * (1 - Math.exp(-dt * (this.diving ? 2.4 : 6)));
 
-    // beam from Earth to the focused planet
-    const target = this.focus === 'jupiter' || this.focus === 'mars' ? this.planets[this.focus].position : null;
-    this.beamMat.uniforms.time.value = this.elapsed;
-    this.beamMat.uniforms.opacity.value += ((target ? 1 : 0) - this.beamMat.uniforms.opacity.value) * (1 - Math.exp(-dt * 4));
-    if (target) {
-      const a = this.planets.earth.position, d = target.clone().sub(a);
-      this.beam.position.copy(a).addScaledVector(d, 0.5);
-      this.beam.scale.set(1, d.length(), 1);
-      this.beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    // data-link arc to the focused world + focus ring
+    const t = this.focus === 'jupiter' || this.focus === 'mars' ? this.focus : null;
+    for (const k of ['mars', 'jupiter'] as const) {
+      const g = this.beams[k]!;
+      let op = 0;
+      for (const m of g.children as THREE.Mesh[]) {
+        const u = (m.material as THREE.ShaderMaterial).uniforms;
+        u.time.value = this.elapsed;
+        u.opacity.value += ((t === k ? 1 : 0) - u.opacity.value) * (1 - Math.exp(-dt * 4));
+        op = u.opacity.value;
+      }
+      g.visible = op > 0.01;
     }
+    const fp = this.focus !== 'overview' ? this.planets[this.focus] : null;
+    const ru = this.ringMat.uniforms;
+    ru.time.value = this.elapsed;
+    ru.opacity.value += ((fp && !this.diving ? 1 : 0) - ru.opacity.value) * (1 - Math.exp(-dt * 5));
+    if (fp) {
+      const r = (fp.geometry as THREE.SphereGeometry).parameters.radius;
+      this.ring.position.copy(fp.position);
+      this.ring.scale.setScalar(r * 3.2);
+      this.ring.quaternion.copy(this.camera.quaternion);
+    }
+    const hi = this.mapMat.uniforms.hi.value as THREE.Vector3;
+    hi.lerp(new THREE.Vector3(this.focus === 'earth' ? 1 : 0, this.focus === 'mars' ? 1 : 0, this.focus === 'jupiter' ? 1 : 0), 1 - Math.exp(-dt * 4));
+    this.mapMat.uniforms.time.value = this.elapsed;
+    this.earthMat.uniforms.time.value = this.elapsed;
+    this.corona.forEach((c, i) => ((c.material as THREE.SpriteMaterial).rotation = (i ? 0.5 : 0) + this.elapsed * (i ? -0.015 : 0.01)));
   }
 
   render() {
@@ -217,4 +326,70 @@ export class SelectStage implements Stage {
     }
     this.setFocus('overview');
   }
+}
+
+/** Earth for the map: NASA day map, city lights on the night side, clouds, sunlit atmosphere rim. Sun at the origin. */
+function earthMaterial(day: THREE.Texture | null, night: THREE.Texture | null, clouds: THREE.Texture | null) {
+  return new THREE.ShaderMaterial({
+    uniforms: { day: { value: day }, night: { value: night }, clouds: { value: clouds }, time: { value: 0 } },
+    vertexShader: /* glsl */ `varying vec2 vUv; varying vec3 vN; varying vec3 vW;
+      void main(){ vUv = uv; vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D day, night, clouds; uniform float time; varying vec2 vUv; varying vec3 vN; varying vec3 vW;
+      void main(){
+        vec3 N = normalize(vN), L = normalize(-vW), V = normalize(cameraPosition - vW);
+        float ndl = dot(N, L);
+        vec3 d = texture2D(day, vUv).rgb;
+        float c = texture2D(clouds, vUv + vec2(time * 0.0015, 0.0)).r;
+        vec3 lit = mix(d * 1.25, vec3(1.0), c * 0.85) * max(ndl, 0.0) * 1.35;
+        float nightSide = smoothstep(0.12, -0.2, ndl);
+        vec3 city = texture2D(night, vUv).rgb * vec3(1.0, 0.72, 0.42) * 2.6 * nightSide * (1.0 - c * 0.8);
+        float fres = pow(1.0 - max(dot(N, V), 0.0), 3.0);
+        vec3 rim = vec3(0.3, 0.6, 1.0) * fres * (0.15 + 1.1 * smoothstep(-0.3, 0.5, ndl));
+        vec3 amb = d * 0.035 + vec3(0.01, 0.015, 0.03);
+        gl_FragColor = vec4(lit + city + rim + amb, 1.0);
+      }`,
+  });
+}
+
+/** Back-face glow shell: a thin atmosphere halo, brighter on the sunlit limb. */
+function atmosphereMaterial(color: THREE.Color, gain: number, center: THREE.Vector3, radius: number, outer: number) {
+  return new THREE.ShaderMaterial({
+    uniforms: { color: { value: color }, gain: { value: gain }, center: { value: center.clone() }, radius: { value: radius }, outer: { value: outer } },
+    vertexShader: /* glsl */ `varying vec3 vN; varying vec3 vW;
+      void main(){ vN = normalize(mat3(modelMatrix) * normal); vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 color, center; uniform float gain, radius, outer; varying vec3 vN; varying vec3 vW;
+      void main(){
+        vec3 D = normalize(vW - cameraPosition);
+        vec3 oc = cameraPosition - center;
+        float t = -dot(oc, D);
+        vec3 cp = oc + D * t;                       // closest point of the view ray to the planet centre
+        float h = (length(cp) - radius) / (outer - radius);
+        if (h < 0.0) discard;                        // the planet itself is in front: no halo over the disc
+        float glow = exp(-h * 5.0) * (1.0 - smoothstep(0.75, 1.0, h));
+        float sun = 0.2 + 0.8 * smoothstep(-0.35, 0.5, dot(normalize(cp), normalize(-center)));
+        gl_FragColor = vec4(color * glow * sun * gain, 1.0);
+      }`,
+    side: THREE.BackSide, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+}
+
+/** Soft 6-point star-streak sprite for the Sun. */
+function streakTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 512;
+  const g = c.getContext('2d')!;
+  g.translate(256, 256);
+  for (let i = 0; i < 6; i++) {
+    g.rotate(Math.PI / 3);
+    const grd = g.createLinearGradient(0, 0, 250, 0);
+    grd.addColorStop(0, 'rgba(255,235,205,0.9)');
+    grd.addColorStop(1, 'rgba(255,200,150,0)');
+    g.fillStyle = grd;
+    g.beginPath(); g.moveTo(0, -3); g.lineTo(250, 0); g.lineTo(0, 3); g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }

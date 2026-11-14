@@ -52,8 +52,8 @@ async function driveTo(id, stopDist = 4.5, maxMs = 120000) {
 }
 
 await pc.goto(BASE);
-await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
-await pc.click('.begin'); await pc.waitForTimeout(1200);
+await pc.waitForSelector('.intro', { timeout: 60000 });
+await pc.click('.intro'); await pc.waitForTimeout(150); await pc.keyboard.press('Escape'); await pc.waitForTimeout(1200);
 await pc.click('.cod-item[data-a="start"]'); await pc.waitForTimeout(600);
 await pc.click('.choice[data-m="device"]'); await pc.waitForSelector('.ms'); await pc.waitForTimeout(900);
 await pc.click('.ms-card[data-id="mars"]');

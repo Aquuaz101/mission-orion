@@ -3,7 +3,7 @@ import { chromium } from 'playwright-core';
 const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true, args: ['--use-angle=d3d11'] });
 const pc = await browser.newPage();
 await pc.goto('http://localhost:5173');
-await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
+await pc.waitForSelector('.intro', { timeout: 60000 });
 const r = await pc.evaluate(async () => {
   const THREE = await import('/node_modules/.vite/deps/three.js');
   const g = window.orion.assets.models.rover;

@@ -8,8 +8,8 @@ const errs = [];
 pc.on('pageerror', (e) => errs.push(e.message));
 pc.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
 await pc.goto('http://localhost:5173');
-await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
-await pc.click('.begin');
+await pc.waitForSelector('.intro', { timeout: 60000 });
+await pc.click('.intro'); await pc.waitForTimeout(150); await pc.keyboard.press('Escape');
 await pc.waitForTimeout(3500);
 if (step === 'menu') {
   await pc.hover('.cod-item[data-a="select"]');

@@ -21,8 +21,8 @@ const skipLines = async (n = 6) => { for (let i = 0; i < n; i++) { await pc.keyb
 const fps = () => pc.evaluate(() => new Promise((r) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 2000) requestAnimationFrame(f); else r(Math.round(n / 2)); }; requestAnimationFrame(f); }));
 
 await pc.goto(BASE);
-await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
-await pc.click('.begin');
+await pc.waitForSelector('.intro', { timeout: 60000 });
+await pc.click('.intro'); await pc.waitForTimeout(150); await pc.keyboard.press('Escape');
 await pc.waitForTimeout(1200);
 await pc.click('.cod-item[data-a="start"]');
 await pc.waitForTimeout(800);
@@ -92,8 +92,9 @@ async function solve(kind, label) {
     if (ok) break;
     await pc.waitForTimeout(250);
   }
-  await pc.waitForTimeout(400);
   await shot(`j-${label}-ready`);
+  // keep tracking the (moving) target right up to the shutter, like a player would
+  await pc.evaluate((kind) => { const s = window.orion.mission.stage; const p = kind === 'europa' ? s.body('europa').pos : kind === 'grs' ? s.grs().pos : { x: 0, y: 0 }; s.centerTarget.set(p.x, p.y); s.center.set(p.x, p.y); }, kind);
   await pc.keyboard.press('Space');
   await pc.waitForTimeout(900);
   await shot(`j-${label}-captured`);
@@ -105,6 +106,7 @@ await solve('disk', '05-disk');
 await solve('grs', '06-grs');
 await solve('europa', '07-europa');
 await skipLines(4);
+for (let i = 0; i < 80 && !(await pc.$('.report')); i++) { await pc.keyboard.press('Tab'); await pc.waitForTimeout(250); }
 await pc.waitForSelector('.report', { timeout: 20000 });
 await pc.waitForTimeout(1500);
 await shot('j08-report');
@@ -114,9 +116,9 @@ console.log('report figures:', await pc.locator('.report-figs figure').count());
 await pc.click('.replay');
 await pc.waitForSelector('.briefing', { timeout: 10000 });
 await pc.keyboard.press('Escape');
-await pc.waitForSelector('.pause', { timeout: 3000 });
+await pc.waitForSelector('.pause-backdrop.in', { timeout: 3000 });
 await shot('j09-pause');
-await pc.click('[data-a="abort"]');
+await pc.click('.pz-item[data-a="abort"]'); await pc.waitForTimeout(200); await pc.click('.pz-item[data-a="abort"]');
 await pc.waitForSelector('.ms', { timeout: 8000 });
 console.log('abort â†’ mission select âœ”');
 

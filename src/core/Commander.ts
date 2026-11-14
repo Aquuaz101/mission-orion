@@ -30,15 +30,7 @@ export class Commander {
     this.el = document.createElement('div');
     this.el.className = 'commander';
     this.el.innerHTML = `
-      <div class="cmd-badge">
-        <div class="cmd-core"><i></i></div>
-        <div>
-          <div class="cmd-name">ACE</div>
-          <div class="cmd-role">Mission AI · Orion</div>
-        </div>
-        <div class="cmd-wave"><i></i><i></i><i></i><i></i><i></i></div>
-      </div>
-      <div class="cmd-text"></div>
+      <p class="cmd-line"><b class="cmd-name">ACE:</b> <span class="cmd-text"></span></p>
       <div class="cmd-skip"><span class="kbd">TAB</span> skip</div>`;
     this.textEl = this.el.querySelector('.cmd-text')!;
     parent.appendChild(this.el);
