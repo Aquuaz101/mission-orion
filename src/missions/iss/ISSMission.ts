@@ -170,6 +170,7 @@ export class ISSMission implements Mission {
     const ld = await line('STATION MODEL · NASA ISS (IGOAL) · 0%', 100);
     const gltf = await app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (ld.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`)).catch(() => null);
     ld.textContent = gltf ? 'STATION MODEL · NASA ISS (IGOAL) · READY' : 'STATION MODEL · UNAVAILABLE';
+    await app.assets.loadModel('emuArm', '/models/emu_arm.glb').catch(() => null); // EMU gloves (Blender, skinned)
     this.alive();
     this.stage = new ISSStage(app.assets, app.engine.renderer, app.quality, gltf);
     const st = this.stage;
@@ -216,7 +217,7 @@ export class ISSMission implements Mission {
 
     // Decision 1: tether. The left hand clips onto the ring on the hatch frame
     await this.choose(L.q1, CHOICES.q1);
-    await st.move([st.air(0.4, 0.1, 0.12)], [st.air(1.2, 0.5, 2.6)], 1.2);
+    await st.move([st.air(0.3, 0.5, 0.36)], [st.air(0.5, 0.95, 1.6)], 1.4);
     const ring = st.air(0.08, 0.75, 0.55);
     await st.L.anchor(() => ring, 0.95, 0.7);
     sfx.clip();
@@ -269,23 +270,32 @@ export class ISSMission implements Mission {
     st.showRig(false);
     await this.climb([3.2, 2.4, 1.6, 0.8, 0.0]);
     this.alive();
-    await st.move([st.at(0, 0.08, 1.74)], [st.at(0, 0.02, 0.27)], 1.4);
+    await st.move([st.at(0, 0.1, 1.0)], [st.at(0, 0.02, 0.27)], 1.4);
   }
 
   /** Hand over hand along the worksite rails (site-local x positions): each hand grabs a real rail and holds it
    *  while the body pulls past, then the other hand takes the next one. */
+  /** In the foot restraint the astronaut leans toward the work: shift the head toward a point on the battery face. */
+  private lean(world: THREE.Vector3, dur = 0.35) {
+    const st = this.stage!;
+    const l = st.site.worldToLocal(world.clone());
+    return st.move([st.at(l.x * 0.6, 0.2 + l.y * 0.6, 0.98)], [st.at(l.x * 0.92, l.y * 0.9 - 0.04, l.z)], dur);
+  }
+
   private async climb(xs: number[], fast = false) {
     const st = this.stage!, { sfx } = this.app;
     const per = fast ? 0.55 : 0.85;
     for (let i = 0; i < xs.length; i++) {
       const hand = i % 2 ? st.R : st.L, other = i % 2 ? st.L : st.R;
       const rail = st.at(xs[i], -0.72, 0.1);
+      // pull along to just short of the next rail (the trailing hand still holds the last one), then take it
+      await st.move([st.at(xs[i] + 0.15, -0.34, 0.66)], [st.at(xs[i] - 1.2, -0.55, 0.1)], i === 0 ? per * 1.3 : per);
       await hand.anchor(() => rail, 0.95, fast ? 0.28 : 0.4);
       sfx.connector(false);
       void other.rest(0.5);
-      await st.move([st.at(xs[i] - 0.2, -0.1, 1.15)], [st.at(xs[i] - 1.4, -0.35, 0.1)], per);
       this.alive();
     }
+    await st.move([st.at(xs[xs.length - 1] - 0.25, -0.3, 0.72)], [st.at(xs[xs.length - 1] - 1.4, -0.5, 0.1)], per);
     void st.L.rest(0.5); void st.R.rest(0.5);
   }
 
@@ -296,7 +306,7 @@ export class ISSMission implements Mission {
     st.sunTo(6, 70);
     sfx.setMusic('jupiter');
     await this.choose(L.q3, CHOICES.q3);
-    await st.move([st.at(0, 0.02, 1.66)], [st.at(0, 0.0, 0.27)], 1.0);
+    await st.move([st.at(0, 0.08, 0.95)], [st.at(0, 0.0, 0.27)], 1.0);
     sfx.clank();
     st.kick(0.2);
     await this.say(L.footOk);
@@ -309,14 +319,16 @@ export class ISSMission implements Mission {
     st.oldOru.leds.forEach((l) => l.emissive.set(0x000000));
     this.progress('Disconnecting J1 · J2 · J3');
     for (const p of st.oldOru.ports) {
-      await st.R.anchor(() => st.worldOf(p), 0.85, 0.45);
+      void this.lean(st.worldOf(p)); // lean and reach together
+      await st.R.anchor(() => st.worldOf(p), 0.85, 0.45, 'tip');
       sfx.connector(false);
       await this.sleep(260);
     }
     this.progress('Releasing bolts · pistol grip tool');
     st.showTool(true);
     for (const b of st.oldOru.bolts) {
-      await st.R.anchor(() => st.worldOf(b), 0.95, 0.38);
+      void this.lean(st.worldOf(b)); // lean and reach together
+      await st.R.anchor(() => st.worldOf(b), 0.95, 0.38, 'tip');
       sfx.ratchet(0.55, false);
       await st.tweenObject(b, b.position.clone().add(new THREE.Vector3(0, 0, 0.03)), new THREE.Euler(Math.PI / 2, -6, 0), 0.55);
     }
@@ -324,13 +336,22 @@ export class ISSMission implements Mission {
     // both hands on the ORU handle; the unit comes out and is handed off to a temporary stow point
     this.progress('Swapping battery units');
     const oldG = st.oldOru.group, newG = st.newOru.group;
-    await Promise.all([st.L.anchor(() => st.worldOf(oldG, new THREE.Vector3(-0.17, 0.36, 0.3)), 0.95, 0.5), st.R.anchor(() => st.worldOf(oldG, new THREE.Vector3(0.17, 0.36, 0.3)), 0.95, 0.5)]);
+    const handle = (g: THREE.Object3D, x: number) => () => st.worldOf(g, new THREE.Vector3(x, 0.36, 0.3));
+    await st.move([st.at(0, 0.3, 1.08)], [st.at(0, 0.12, 0.27)], 0.5); // re-centre on the top handles
+    await Promise.all([st.L.anchor(handle(oldG, -0.17), 0.95, 0.5), st.R.anchor(handle(oldG, 0.17), 0.95, 0.5)]);
     sfx.servo(1.0);
-    await st.tweenObject(oldG, new THREE.Vector3(0, 0.05, 0.75), null, 1.4);
+    // back away with the unit: body and battery slide out together
+    await Promise.all([st.tweenObject(oldG, new THREE.Vector3(0, 0.05, 0.75), null, 1.6), st.move([st.at(0, 0.12, 1.43)], [st.at(0, 0.05, 0.6)], 1.6)]);
+    // hand it to the temporary stow point: let go, it drifts onto its tether
+    void st.L.rest(0.5); void st.R.rest(0.5);
     await st.tweenObject(oldG, new THREE.Vector3(1.5, -0.75, 1.0), new THREE.Euler(0.15, -0.4, 0), 1.6);
-    await Promise.all([st.L.anchor(() => st.worldOf(newG, new THREE.Vector3(-0.17, 0.36, 0.3)), 0.95, 0.6), st.R.anchor(() => st.worldOf(newG, new THREE.Vector3(0.17, 0.36, 0.3)), 0.95, 0.6)]);
-    await st.tweenObject(newG, new THREE.Vector3(0, 0.02, 0.78), new THREE.Euler(0, 0, 0), 1.6);
-    await st.tweenObject(newG, new THREE.Vector3(0, 0, 0.27), null, 1.0);
+    // over to the flight spare, take both handles
+    await st.move([st.at(-1.14, -0.14, 1.6)], [st.at(-1.25, -0.6, 0.95)], 1.4);
+    await Promise.all([st.L.anchor(handle(newG, -0.17), 0.95, 0.5), st.R.anchor(handle(newG, 0.17), 0.95, 0.5)]);
+    sfx.clank();
+    // carry it into the slot: the body follows the unit in, then pushes it home
+    await Promise.all([st.tweenObject(newG, new THREE.Vector3(0, 0.02, 0.78), new THREE.Euler(0, 0, 0), 1.8), st.move([st.at(0, 0.12, 1.45)], [st.at(0, 0.05, 0.6)], 1.8)]);
+    await Promise.all([st.tweenObject(newG, new THREE.Vector3(0, 0, 0.27), null, 1.1), st.move([st.at(0, 0.08, 0.95)], [st.at(0, 0.0, 0.27)], 1.1)]);
     sfx.clank();
     st.kick(0.2);
     void st.L.rest(0.6);
@@ -339,7 +360,8 @@ export class ISSMission implements Mission {
     void this.say(L.bolts);
     st.showTool(true);
     for (const b of st.newOru.bolts) {
-      await st.R.anchor(() => st.worldOf(b), 0.95, 0.38);
+      void this.lean(st.worldOf(b)); // lean and reach together
+      await st.R.anchor(() => st.worldOf(b), 0.95, 0.38, 'tip');
       sfx.ratchet(0.6, true);
       await st.tweenObject(b, b.position.clone().add(new THREE.Vector3(0, 0, -0.02)), new THREE.Euler(Math.PI / 2, 8, 0), 0.6);
     }
@@ -370,7 +392,8 @@ export class ISSMission implements Mission {
       const opts: Choice[] = order.map((k, i) => ({ label: `Socket ${String.fromCharCode(65 + i)}`, phone: `Socket ${String.fromCharCode(65 + i)} · ${glyph[CONNECTORS[k].shape]}`, sub: '', ok: CONNECTORS[k].id === plug.id, why: L.connWrong, icon: shapeSvg(CONNECTORS[k].shape, '#e9eef6') } as Choice & { icon: string; phone: string }));
       const idx = await this.choose(`Mate plug ${plug.name}`, opts, { icon: shapeSvg(plug.shape, plug.color), silentPrompt: true, quiet: true, phonePrompt: `Plug ${plug.name} has a ${glyph[plug.shape]} key. Which socket matches?` });
       const port = st.newOru.ports[order[idx]];
-      await st.R.anchor(() => st.worldOf(port), 0.9, 0.5);
+      void this.lean(st.worldOf(port)); // lean and reach together
+      await st.R.anchor(() => st.worldOf(port), 0.9, 0.5, 'tip');
       sfx.connector(true);
       st.newOru.leds[order[idx]].emissive.set(0xffaa00);
       await this.sleep(300);
@@ -406,7 +429,7 @@ export class ISSMission implements Mission {
     this.stressTo(0.75);
     st.debris = 0.45;
     // tuck in close against the truss face, facing it, a hand on each rail; a second tether clip
-    await st.move([st.at(0.4, -0.6, 1.3)], [st.at(0.4, -0.66, -0.4)], 1.1);
+    await st.move([st.at(0.4, -0.62, 0.66)], [st.at(0.4, -0.72, -0.4)], 1.1);
     sfx.clip();
     await Promise.all([st.L.anchor(() => st.at(0, -0.72, 0.1), 0.98, 0.35), st.R.anchor(() => st.at(0.8, -0.72, 0.1), 0.98, 0.35)]);
     sfx.connector(false);
@@ -421,7 +444,7 @@ export class ISSMission implements Mission {
     this.alive();
     void this.say(L.shieldOk, true);
     // helmet down: look along the rail, away from the stream
-    await st.move([st.at(0.4, -0.64, 1.24)], [st.at(0.4, -1.7, 0.1)], 0.8);
+    await st.move([st.at(0.4, -0.66, 0.6)], [st.at(0.4, -1.6, 0.1)], 0.8);
     st.shake = 0.9;
     this.stressTo(0.95);
     const hits: [number, THREE.Vector3][] = [[500, new THREE.Vector3(-3, 6, -32)], [900, st.at(0.9, 1.35, -0.3)], [600, st.at(-2.2, 0.6, 0.1)], [1100, new THREE.Vector3(-6, 9, -40)], [700, st.at(1.8, -1.6, 0.2)]];

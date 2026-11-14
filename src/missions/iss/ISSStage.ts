@@ -9,7 +9,7 @@ import type { Stage } from '../../core/Engine';
 import type { Assets } from '../../core/Assets';
 import type { Quality } from '../../app/App';
 import { makeMaterials, handrail, batteryOru, pistolGripTool, type Mats, type Oru } from './parts';
-import { emuArm, setGrip, type EmuHand } from './hands';
+import { emuArm, emuArmModel, setGrip, type EmuHand } from './hands';
 import { earthMaterial, atmosphereMaterial, RaysShader, VisorShader, visorDirt, glowTex, R_EARTH, ALT } from './issfx';
 
 /**
@@ -53,7 +53,7 @@ class HandCtl {
   private onReached: (() => void) | null = null;
   readonly shoulder: Vec;
   constructor(public h: EmuHand, private cam: THREE.Camera, private side: number) {
-    this.shoulder = new THREE.Vector3(0.24 * side, -0.44, 0.12);
+    this.shoulder = new THREE.Vector3(0.22 * side, -0.32, 0.08);
   }
   private snapshot() { this.from.p.copy(this.h.root.position); this.from.q.copy(this.h.root.quaternion); this.from.g = this.h.grip; this.t = 0; }
   pose(p: [number, number, number], r: [number, number, number], g: number, dur = 0.5) {
@@ -67,8 +67,10 @@ class HandCtl {
     return new Promise<void>((res) => (this.onReached = res));
   }
   rest(dur = 0.6) { return this.pose([0.25 * this.side, -0.4, -0.5], [0.3, 0.22 * this.side, 0.35 * this.side], 0.3, dur); }
-  anchor(get: Getter, grip = 0.9, dur = 0.45) {
+  anchor(get: Getter, grip = 0.9, dur = 0.45, contact: 'wrap' | 'tip' = 'wrap') {
     this.snapshot();
+    this.logged = false;
+    this.gripLocal = contact === 'tip' ? HandCtl.TIP_LOCAL : HandCtl.GRIP_LOCAL;
     this.mode = 'anchor';
     this.getter = get;
     this.grip = grip;
@@ -76,21 +78,40 @@ class HandCtl {
     return new Promise<void>((res) => (this.onReached = res));
   }
   private tmpQ = new THREE.Quaternion();
-  private tmpM = new THREE.Matrix4();
+  /** Where the rail sits inside the closed glove (hand-root space): under the proximal finger segments. */
+  static readonly GRIP_LOCAL = new THREE.Vector3(0, -0.028, -0.1);
+  static readonly MAX_REACH = 0.82;
+  /** Fingertip / tool-tip contact point (hand-root space) for flat targets: bolts, connector ports. */
+  static readonly TIP_LOCAL = new THREE.Vector3(0, -0.025, -0.175);
+  private gripLocal = HandCtl.GRIP_LOCAL;
+  /** Sleeve axis in hand-root space (wrist → elbow; the model's built-in 35° wrist bend) and the hand's lateral axis. */
+  static readonly SLEEVE = new THREE.Vector3(0, -0.58, 0.81).normalize();
+  static readonly RIGHT = new THREE.Vector3(1, 0, 0);
+  /** Grabs that could not reach their target (metres short), for QA. */
+  static misses: { side: number; short: number; at: number }[] = [];
+  private logged = false;
   update(dt: number) {
     this.t = Math.min(1, this.t + dt / this.dur);
     const e = this.t * this.t * (3 - 2 * this.t);
     const root = this.h.root;
     if (this.mode === 'anchor' && this.getter) {
       const local = this.cam.worldToLocal(this.getter().clone());
-      // the hand sits a little short of the grip point (the palm wraps the rail), within arm's reach
-      const dir = local.clone().sub(this.shoulder);
-      const dist = dir.length();
-      dir.normalize();
-      const reach = Math.min(dist - 0.035, 0.66);
-      const target = this.shoulder.clone().addScaledVector(dir, reach);
-      this.tmpM.lookAt(new THREE.Vector3(), dir, new THREE.Vector3(0, 1, 0));
-      this.tmpQ.setFromRotationMatrix(this.tmpM).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -0.35 * this.side));
+      // aim the forearm from the shoulder at the grip point, then place the wrist so the rail lands inside the curled fingers
+      // Solve the forearm: the sleeve (hand-space axis SLEEVE) runs from the wrist back to this arm's shoulder, the hand's
+      // +X stays toward camera-right, and the wrist sits where the grip point lands on the target (two passes converge).
+      let want = local.clone().addScaledVector(local.clone().sub(this.shoulder).normalize(), -0.14);
+      for (let k = 0; k < 3; k++) {
+        const toShoulder = this.shoulder.clone().sub(want).normalize();
+        this.tmpQ.copy(pairRotation(HandCtl.SLEEVE, HandCtl.RIGHT, toShoulder, HandCtl.RIGHT));
+        want = local.clone().sub(this.gripLocal.clone().applyQuaternion(this.tmpQ));
+      }
+      const fromShoulder = want.clone().sub(this.shoulder);
+      const need = fromShoulder.length();
+      if (need > HandCtl.MAX_REACH) {
+        fromShoulder.setLength(HandCtl.MAX_REACH);
+        if (this.t >= 1 && !this.logged && need - HandCtl.MAX_REACH > 0.02) { this.logged = true; HandCtl.misses.push({ side: this.side, short: +(need - HandCtl.MAX_REACH).toFixed(3), at: performance.now() }); }
+      }
+      const target = this.shoulder.clone().add(fromShoulder);
       root.position.lerpVectors(this.from.p, target, e);
       root.quaternion.slerpQuaternions(this.from.q, this.tmpQ, e);
       setGrip(this.h, THREE.MathUtils.lerp(this.from.g, this.grip, THREE.MathUtils.smoothstep(this.t, 0.55, 1)));
@@ -102,6 +123,21 @@ class HandCtl {
     if (this.t >= 1 && this.onReached) { const r = this.onReached; this.onReached = null; r(); }
   }
 }
+
+/** Rotation taking the pair (a1 primary, b1 secondary) onto (a2, b2): a1 → a2 exactly, b1 → b2 as closely as possible. */
+const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _pq = new THREE.Quaternion();
+function basisOf(m: THREE.Matrix4, a: THREE.Vector3, b: THREE.Vector3) {
+  const u = a.clone().normalize();
+  const v = b.clone().addScaledVector(u, -u.dot(b)).normalize();
+  return m.makeBasis(u, v, u.clone().cross(v));
+}
+function pairRotation(a1: THREE.Vector3, b1: THREE.Vector3, a2: THREE.Vector3, b2: THREE.Vector3) {
+  basisOf(_m1, a1, b1); basisOf(_m2, a2, b2);
+  return _pq.setFromRotationMatrix(_m2.multiply(_m1.transpose()));
+}
+
+/** QA hook: grabs that fell short of their rail. */
+export const grabMisses = () => HandCtl.misses;
 
 export class ISSStage implements Stage {
   readonly scene = new THREE.Scene();
@@ -297,8 +333,10 @@ export class ISSStage implements Stage {
     // ── first person: camera on the body; gloves on the camera; the arm-ride rig on the body
     this.scene.add(this.body);
     this.body.add(this.camera);
-    const hl = emuArm(-1), hr = emuArm(1);
+    const armModel = assets.models.emuArm ?? null;
+    const hl = armModel ? emuArmModel(-1, armModel) : emuArm(-1), hr = armModel ? emuArmModel(1, armModel) : emuArm(1);
     this.camera.add(hl.root, hr.root);
+    (window as unknown as { orionGrabMisses?: unknown }).orionGrabMisses = HandCtl.misses; // QA hook
     this.L = new HandCtl(hl, this.camera, -1);
     this.R = new HandCtl(hr, this.camera, 1);
     void this.L.rest(0); void this.R.rest(0);

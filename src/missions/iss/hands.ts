@@ -6,6 +6,8 @@
  * bearing rings, plus the cuff checklist (left) or the wrist mirror and tether loop (right).
  */
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 
 let shared: ReturnType<typeof makeMats> | null = null;
 
@@ -102,9 +104,67 @@ function checklistTexture() {
 
 export interface EmuHand {
   root: THREE.Group;
-  fingers: THREE.Group[][];
-  thumb: THREE.Group[];
+  fingers: THREE.Object3D[][];
+  thumb: THREE.Object3D[];
   grip: number;
+  /** Skinned Blender glove: joints curl about their own X axis from a stored rest pose. */
+  skinned?: boolean;
+}
+
+/**
+ * High-detail EMU arm from scripts/blender/emu_arm.py (public/models/emu_arm.glb): one continuous skinned glove
+ * (finger + thumb bones), convolute sleeve with fabric folds, gauntlet, anodised wrist disconnect with chrome bearing,
+ * latch pins and bolt heads. The game's textured materials (fabric weave, rubber grip, anodised rings) replace the
+ * export's placeholders by name. The model is a right arm; the left is its mirror with a blue disconnect ring.
+ */
+export function emuArmModel(side: number, gltf: GLTF): EmuHand {
+  const m = (shared ??= makeMats());
+  const root = new THREE.Group();
+  const model = cloneSkinned(gltf.scene);
+  if (side < 0) model.scale.x = -1;
+  const byName: Record<string, THREE.Material> = { fabric: m.fabric, fabricDark: m.fabricDark, grip: m.grip, tip: m.tip, chrome: m.chrome, black: m.black, ano: side < 0 ? m.anoBlue : m.anoRed };
+  model.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const name = (mesh.material as THREE.Material).name;
+    mesh.material = byName[name] ?? m.fabric;
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.frustumCulled = false; // bones move the glove outside its bind-pose bounds
+  });
+  root.add(model);
+  const bone = (n: string) => { const b = model.getObjectByName(n)!; b.userData.rest = b.quaternion.clone(); return b; };
+  const fingers = [0, 1, 2, 3].map((fi) => [0, 1, 2].map((si) => bone(`f${fi}_${si}`)));
+  const thumb = [0, 1, 2].map((i) => bone(`t_${i}`));
+  // wrist accessories ride on the sleeve (same frame as the procedural arm)
+  const arm = new THREE.Group();
+  arm.rotation.x = 0.62;
+  root.add(arm);
+  addAccessories(arm, side, m);
+  const hand: EmuHand = { root, fingers, thumb, grip: 0, skinned: true };
+  setGrip(hand, 0.25);
+  return hand;
+}
+
+function addAccessories(arm: THREE.Object3D, side: number, m: ReturnType<typeof makeMats>) {
+  const add = (mesh: THREE.Mesh, parent: THREE.Object3D) => { mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh; };
+  if (side < 0) {
+    const book = new THREE.Group();
+    const cover = add(new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.006, 0.065), m.black), book);
+    cover.position.y = -0.002;
+    const page = add(new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.06), m.page), book);
+    page.rotation.x = -Math.PI / 2; page.position.y = 0.0015;
+    for (let i = 0; i < 7; i++) { const coil = add(new THREE.Mesh(new THREE.TorusGeometry(0.0035, 0.0008, 4, 10), m.chrome), book); coil.position.set(-0.03 + i * 0.01, 0.002, 0.033); coil.rotation.y = Math.PI / 2; }
+    book.position.set(0, 0.08, 0.15);
+    book.rotation.set(0.62, Math.PI, 0);
+    arm.add(book);
+  } else {
+    const bracket = add(new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.03, 0.01), m.chrome), arm);
+    bracket.position.set(-0.058, 0.055, 0.12);
+    const mirror = add(new THREE.Mesh(new THREE.CircleGeometry(0.022, 32), m.mirror), arm);
+    mirror.position.set(-0.066, 0.075, 0.12); mirror.rotation.set(-0.5, -0.9, 0);
+    const rim = add(new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.003, 8, 32), m.black), arm);
+    rim.position.copy(mirror.position); rim.rotation.copy(mirror.rotation);
+  }
 }
 
 /** One EMU glove + lower sleeve. side = -1 left, +1 right. Hand points along -Z, palm faces -Y. */
@@ -213,8 +273,18 @@ export function emuArm(side: number): EmuHand {
 }
 
 /** 0 = relaxed (pressurised gloves never fully open), 1 = closed around a handrail. */
+const _qx = new THREE.Quaternion(), _ax = new THREE.Vector3(1, 0, 0);
 export function setGrip(h: EmuHand, g: number) {
   h.grip = g;
+  if (h.skinned) {
+    // bone roll puts +Z on the palm side, so +X rotation curls toward the palm
+    const curl = (b: THREE.Object3D, a: number) => b.quaternion.copy(b.userData.rest as THREE.Quaternion).multiply(_qx.setFromAxisAngle(_ax, a));
+    h.fingers.forEach((chain, fi) => chain.forEach((b, si) => curl(b, ((si === 0 ? 0.22 : 0.16) + g * (si === 0 ? 1.05 : si === 1 ? 1.3 : 0.95)) * (fi === 3 ? 1.08 : 1))));
+    curl(h.thumb[0], 0.05 + g * 0.3);
+    curl(h.thumb[1], 0.12 + g * 0.6);
+    curl(h.thumb[2], 0.12 + g * 0.85);
+    return;
+  }
   h.fingers.forEach((chain, fi) => chain.forEach((j, si) => {
     const base = si === 0 ? 0.25 : 0.18;
     j.rotation.x = -(base + g * (si === 0 ? 1.05 : si === 1 ? 1.25 : 0.95)) * (fi === 3 ? 1.08 : 1);

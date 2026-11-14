@@ -27,6 +27,6 @@ while (Date.now() - t0 < 6 * 60000) {
   }
   await p.waitForTimeout(250);
 }
-console.log('done', ((Date.now() - t0) / 60000).toFixed(1), 'min');
+console.log('done', ((Date.now() - t0) / 60000).toFixed(1), 'min'); console.log('grab misses', JSON.stringify(await p.evaluate(() => window.orionGrabMisses ?? null)));
 console.log(errs.length ? [...new Set(errs)].slice(0, 10).join('\n') : 'no errors');
 await b.close();
