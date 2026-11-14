@@ -33,7 +33,7 @@ export interface HudState {
 
 /** PC -> Phone */
 export type HostMsg =
-  | { t: 'layout'; layout: ControllerLayout; title: string; subtitle?: string; missions?: MissionEntry[] }
+  | { t: 'layout'; layout: ControllerLayout; title: string; subtitle?: string; missions?: MissionEntry[]; cta?: string }
   | { t: 'hud'; hud: HudState }
   | { t: 'buzz'; pattern: number | number[] };
 

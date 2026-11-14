@@ -3,13 +3,14 @@ import * as THREE from 'three';
 
 export const R_EARTH = 6371;
 export const ALT = 420;
-/** High-resolution NASA Blue Marble patch (Caribbean): lon -90..-62, lat 14..34. */
+/** High-resolution real satellite patch under the flight path: NOAA-20 VIIRS true colour, 21 Aug 2024 (NASA GIBS),
+ *  ≈ 0.5 km per pixel, lon -100..-60, lat 12..38. Real clouds are baked in, so the shader splits them back out. */
 const DETAIL = { lon0: -100, lon1: -60, lat1: 12, lat0: 38 };
 
-export const earthMaterial = (day: THREE.Texture | null, detail: THREE.Texture | null, night: THREE.Texture | null, cloudTex: THREE.Texture | null) =>
+export const earthMaterial = (day: THREE.Texture | null, detail: THREE.Texture | null, night: THREE.Texture | null, cloudTex: THREE.Texture | null, nightDetail: THREE.Texture | null = null) =>
   new THREE.ShaderMaterial({
     uniforms: {
-      dayMap: { value: day }, detailMap: { value: detail }, nightMap: { value: night }, cloudMap: { value: cloudTex },
+      dayMap: { value: day }, detailMap: { value: detail }, nightMap: { value: night }, cloudMap: { value: cloudTex }, nightDetail: { value: nightDetail ?? night },
       bounds: { value: new THREE.Vector4(DETAIL.lon0, DETAIL.lon1, DETAIL.lat1, DETAIL.lat0) },
       sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunLocal: { value: new THREE.Vector3(0, 1, 0) }, camPos: { value: new THREE.Vector3() }, sunColor: { value: new THREE.Color(1, 1, 1) },
     },
@@ -18,15 +19,21 @@ export const earthMaterial = (day: THREE.Texture | null, detail: THREE.Texture |
       void main(){ vUv = uv; vL = normalize(position); vN = normalize(mat3(modelMatrix) * normal);
         vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: /* glsl */ `
-      uniform sampler2D dayMap, detailMap, nightMap, cloudMap; uniform vec4 bounds; uniform vec3 sunDir, sunLocal, camPos, sunColor;
+      uniform sampler2D dayMap, detailMap, nightMap, cloudMap, nightDetail; uniform vec4 bounds; uniform vec3 sunDir, sunLocal, camPos, sunColor;
       varying vec2 vUv; varying vec3 vN; varying vec3 vW; varying vec3 vL;
+      vec2 dUv(float lon, float lat){ return vec2((lon - bounds.x) / (bounds.y - bounds.x), (lat - bounds.z) / (bounds.w - bounds.z)); }
+      // clouds in the satellite image: bright and colourless (min channel), soft edges kept
+      float cloudOf(vec3 c){ return smoothstep(0.2, 0.6, min(c.r, min(c.g, c.b))); }
       vec2 uvOf(vec3 n){ float phi = atan(n.z, -n.x); if (phi < 0.0) phi += 6.2831853; return vec2(phi / 6.2831853, 1.0 - acos(clamp(n.y, -1.0, 1.0)) / 3.1415927); }
       void main(){
         float lon = vUv.x * 360.0 - 180.0, lat = vUv.y * 180.0 - 90.0;
         vec3 day = texture2D(dayMap, vUv).rgb;
-        vec2 duv = vec2((lon - bounds.x) / (bounds.y - bounds.x), (lat - bounds.z) / (bounds.w - bounds.z));
+        vec2 duv = dUv(lon, lat);
         float edge = smoothstep(0.0, 0.04, duv.x) * smoothstep(1.0, 0.96, duv.x) * smoothstep(0.0, 0.05, duv.y) * smoothstep(1.0, 0.95, duv.y);
-        day = mix(day, texture2D(detailMap, clamp(duv, 0.0, 1.0)).rgb, edge);
+        vec3 img = texture2D(detailMap, clamp(duv, 0.0, 1.0)).rgb;
+        float cImg = cloudOf(img);
+        float cLum = dot(img, vec3(0.3, 0.5, 0.2));
+        day = mix(day, img, edge);
         vec3 N = normalize(vN), L = normalize(sunDir), V = normalize(camPos - vW);
         float ndl = dot(N, L);
         // surface light: soft terminator, coloured by the (low, reddened) Sun
@@ -35,8 +42,10 @@ export const earthMaterial = (day: THREE.Texture | null, detail: THREE.Texture |
         float water = clamp((day.b - max(day.r, day.g * 0.85)) * 30.0, 0.0, 1.0) * (1.0 - smoothstep(0.08, 0.2, day.g));
         // ocean: a touch of depth blue so it is not flat black-blue
         day = mix(day, day * vec3(0.85, 1.0, 1.25) + vec3(0.0, 0.006, 0.02), water * 0.6);
-        float c = texture2D(cloudMap, vUv).r;
-        float sh = texture2D(cloudMap, uvOf(normalize(vL + normalize(sunLocal) * 0.0035))).r;
+        float c = mix(texture2D(cloudMap, vUv).r, cImg, edge);
+        vec2 suv = uvOf(normalize(vL + normalize(sunLocal) * 0.0035));
+        float shImg = cloudOf(texture2D(detailMap, clamp(dUv(suv.x * 360.0 - 180.0, suv.y * 180.0 - 90.0), 0.0, 1.0)).rgb);
+        float sh = mix(texture2D(cloudMap, suv).r, shImg, edge);
         vec3 col = day * 1.38 * lit * sunC * (1.0 - sh * 0.55 * smoothstep(0.0, 0.2, ndl));
         // sun glint on open water, tinted by the Sun
         vec3 H = normalize(L + V);
@@ -46,19 +55,22 @@ export const earthMaterial = (day: THREE.Texture | null, detail: THREE.Texture |
         float cl = smoothstep(-0.11, 0.25, ndl) * max(ndl + 0.11, 0.0) / 1.11;
         vec3 dawn = mix(vec3(1.0, 0.5, 0.35), vec3(1.0, 0.97, 0.94), smoothstep(-0.02, 0.3, ndl));
         float thick = smoothstep(0.35, 1.0, c);
-        vec3 cloudCol = dawn * sunColor * (0.02 + 1.18 * cl) * mix(0.82, 1.06, thick);
+        float shade = mix(1.0, clamp(cLum * 1.2, 0.55, 1.15), edge); // real cloud tops: bright domes, grey shadowed flanks
+        vec3 cloudCol = dawn * sunColor * (0.02 + 1.18 * cl) * mix(0.82, 1.06, thick) * shade;
         col = mix(col, cloudCol, smoothstep(0.04, 0.9, c) * 0.94);
         // twilight band on the ground just past the terminator
         col += vec3(0.5, 0.18, 0.06) * smoothstep(-0.1, 0.0, ndl) * smoothstep(0.08, 0.0, ndl) * 0.08 * (1.0 - c);
         // night: city lights + faint airglow on the ocean
         float night = smoothstep(0.04, -0.14, ndl);
-        col += texture2D(nightMap, vUv).rgb * vec3(1.0, 0.72, 0.42) * night * (1.0 - c * 0.85) * 1.9;
+        // city lights: NASA Black Marble (≈ 1 km) under the flight path, the global map elsewhere; the faint land glow is cut
+        vec3 lights = mix(texture2D(nightMap, vUv).rgb, max(texture2D(nightDetail, clamp(duv, 0.0, 1.0)).rgb - 0.012, 0.0) * 1.15, edge);
+        col += lights * vec3(1.0, 0.72, 0.42) * night * (1.0 - c * 0.85) * 1.9;
         col += vec3(0.004, 0.008, 0.018) * night;
         // aerial perspective: blue haze thickening toward the limb (by day), dusky at the terminator
         float mu = max(dot(N, V), 0.0);
-        float haze = pow(1.0 - mu, 3.2);
+        float haze = pow(1.0 - mu, 4.2);
         vec3 sky = mix(vec3(0.5, 0.3, 0.24), vec3(0.22, 0.45, 1.0), smoothstep(-0.04, 0.1, ndl)) * (0.03 + 0.95 * smoothstep(-0.12, 0.4, ndl));
-        col = mix(col, sky, clamp(haze * 0.88 + 0.05, 0.0, 0.92) * smoothstep(-0.25, 0.1, ndl) + haze * 0.12);
+        col = mix(col, sky, clamp(haze * 0.82 + 0.025, 0.0, 0.9) * smoothstep(-0.25, 0.1, ndl) + haze * 0.1);
         gl_FragColor = vec4(col, 1.0);
       }`,
   });

@@ -41,7 +41,8 @@ export const ASSET_JOBS: AssetJob[] = [
   { key: 'hubble', url: '/models/hubble.glb', kind: 'gltf', kb: 1655, label: 'Hubble Space Telescope model · NASA' },
   { key: 'iss', url: '/models/iss.glb', kind: 'gltf', kb: 455, label: 'International Space Station model · NASA' },
   { key: 'earthHd', url: '/textures/earth_hd.jpg', kind: 'texture', kb: 1160, label: 'Earth from orbit · NASA Blue Marble Next Generation', srgb: true },
-  { key: 'earthDetail', url: '/textures/earth_detail.jpg', kind: 'texture', kb: 490, label: 'Caribbean at 500 m/px · NASA Blue Marble NG', srgb: true },
+  { key: 'earthDetail', url: '/textures/earth_detail.jpg', kind: 'texture', kb: 6400, label: 'Gulf of Mexico at 500 m/px · NASA VIIRS (NOAA-20)', srgb: true },
+  { key: 'earthNightDetail', url: '/textures/earth_night_detail.jpg', kind: 'texture', kb: 710, label: 'City lights at 1 km/px · NASA Black Marble', srgb: true },
   { key: 'earthClouds', url: '/textures/earth_clouds.jpg', kind: 'texture', kb: 580, label: 'Cloud cover (baked)' },
 ];
 
@@ -102,9 +103,19 @@ export class Assets {
   /** Load a large model on demand (not at boot). Cached. */
   async loadModel(key: string, url: string, onProgress?: (f: number) => void) {
     if (this.models[key]) return this.models[key];
-    this.models[key] = await this.gltfLoader().loadAsync(url, (e) => { if (e.lengthComputable && e.total) onProgress?.(e.loaded / e.total); });
-    return this.models[key];
+    // one download per model even when several callers ask at once (prefetch + briefing + mission); everyone sees progress
+    if (onProgress) (this.progressFns[key] ??= new Set()).add(onProgress);
+    const p = (this.pendingModels[key] ??= this.gltfLoader()
+      .loadAsync(url, (e) => { if (e.lengthComputable && e.total) { this.modelFrac[key] = e.loaded / e.total; this.progressFns[key]?.forEach((f) => f(e.loaded / e.total)); } })
+      .then((g) => (this.models[key] = g))
+      .finally(() => { delete this.pendingModels[key]; delete this.progressFns[key]; }));
+    return p;
   }
+  /** Fraction of a model download done so far (1 when cached), or null if it has not started. */
+  modelProgress(key: string) { return this.models[key] ? 1 : this.pendingModels[key] ? this.modelFrac[key] ?? 0 : null; }
+  private pendingModels: Partial<Record<string, Promise<GLTF>>> = {};
+  private progressFns: Record<string, Set<(f: number) => void>> = {};
+  private modelFrac: Record<string, number> = {};
 
   private async loadOne(job: AssetJob, gltf: GLTFLoader, tex: THREE.TextureLoader, progress: (f: number) => void) {
     switch (job.kind) {

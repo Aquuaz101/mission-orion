@@ -52,7 +52,7 @@ export const MISSIONS: MissionInfo[] = [
     subtitle: 'Orbital Maintenance',
     verb: 'MAINTAIN',
     instrument: 'Spacewalk · helmet camera',
-    description: 'Guide an astronaut through a spacewalk to replace a failed battery, then get them home through a debris alert.',
+    description: 'Guide an astronaut through a spacewalk to replace a failed battery, then keep them alive through a debris storm.',
     duration: '≈ 4 min',
     enabled: true,
     image: '/textures/earth_detail.jpg',

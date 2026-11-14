@@ -89,7 +89,7 @@ export class JupiterMission implements Mission {
     app.space.setShot('briefing', 0.7);
     const hubble = app.assets.models.hubble?.scene;
     app.space.showModel(hubble ? hubble.clone(true) : null, 4.6);
-    app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 01 · Briefing', subtitle: 'Tap Skip to jump ahead' });
+    app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 01 · Briefing', subtitle: 'Tap Begin when you are ready', cta: 'Begin mission' });
 
     const specs = HUBBLE_SPECS.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     const objs = OBJECTIVES.map((o) => `<li><span class="mono">${o.code}</span>${escapeHtml(o.title)}</li>`).join('');

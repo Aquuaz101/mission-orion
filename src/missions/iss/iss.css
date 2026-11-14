@@ -81,3 +81,10 @@
 
 /* mission-exit pull-out: the helmet HUD gives way to the satellite tag */
 .ihud.sat .ih-tl, .ihud.sat .ih-tr, .ihud.sat .ih-obj, .ihud.sat .ih-cross, .ihud.sat .ih-keys, .ihud.sat .ih-alert, .ihud.sat .progress-pill, .ihud.sat .loc-card { opacity: 0 !important; transition: opacity 0.4s; }
+
+/* direct mouse aim: no cursor while the helmet cam is live; choices are made with the number keys */
+body.iss-aim, body.iss-aim * { cursor: none !important; }
+body.iss-aim .ihud .choices { pointer-events: none; }
+.ihud .ch-hint { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--hud-dim); }
+.ihud .ch-hint .kbd { margin: 0 2px; }
+.ihud .ch-card .kbd { font-size: 13px; min-width: 22px; padding: 3px 7px; color: #fff; border-color: rgba(160, 230, 255, 0.6); }

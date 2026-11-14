@@ -195,8 +195,8 @@ export class ISSStage implements Stage {
     this.keepTextures(T);
 
     // ── sky (km): Earth, atmosphere, stars, Sun
-    this.earthMat = earthMaterial(T.earthHd ?? T.earthDay ?? null, T.earthDetail ?? null, T.earthNight ?? null, T.earthClouds ?? null);
-    for (const t of [T.earthHd, T.earthDetail, T.earthNight, T.earthClouds]) if (t) { t.anisotropy = renderer.capabilities.getMaxAnisotropy(); t.needsUpdate = true; }
+    this.earthMat = earthMaterial(T.earthHd ?? T.earthDay ?? null, T.earthDetail ?? null, T.earthNight ?? null, T.earthClouds ?? null, T.earthNightDetail ?? null);
+    for (const t of [T.earthHd, T.earthDetail, T.earthNight, T.earthClouds, T.earthNightDetail]) if (t) { t.anisotropy = renderer.capabilities.getMaxAnisotropy(); t.needsUpdate = true; }
     if (T.earthClouds) T.earthClouds.wrapS = THREE.RepeatWrapping;
     this.earth = new THREE.Mesh(new THREE.SphereGeometry(R_EARTH, this.preset.seg, this.preset.seg / 2), this.earthMat);
     this.earth.position.set(0, -(R_EARTH + ALT), 0);

@@ -36,6 +36,8 @@ export class Input {
   pointerEnabled = false;
   /** 'lock': click captures the mouse for free-look (tank-game style); 'drag': click-and-drag. */
   lookMode: 'drag' | 'lock' = 'drag';
+  /** Mouse position over the window, -1..1 (y up), and when it last moved (performance.now()). */
+  readonly pointer = { x: 0, y: 0, movedAt: 0 };
 
   get pointerLocked() {
     return document.pointerLockElement === this.canvas;
@@ -46,6 +48,9 @@ export class Input {
 
   constructor(link: Link, private canvas: HTMLCanvasElement) {
     document.addEventListener('mousemove', (e) => {
+      this.pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+      this.pointer.y = 1 - (e.clientY / window.innerHeight) * 2;
+      this.pointer.movedAt = performance.now();
       if (!this.pointerLocked || !this.pointerEnabled) return;
       this.mouse.dx += e.movementX;
       this.mouse.dy += e.movementY;

@@ -115,5 +115,14 @@ body {
 .iss-choices { grid-column: 1; grid-row: 2 / 4; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
 .iss-choices.empty::before { content: 'Waiting for the next call…'; color: var(--c-muted); font-size: 13px; padding: 16px 4px; }
 .iss-choices .m-tile b { font-size: 16px; text-transform: none; letter-spacing: 0.02em; }
-.iss-layout .action { grid-column: 2; grid-row: 2; align-self: center; }
 .iss-layout .look { grid-column: 2; grid-row: 3; width: min(34vw, 150px); aspect-ratio: 1; }
+
+/* briefing: start button */
+.lobby .cta { width: min(360px, 100%); border-color: var(--c-cyan); box-shadow: 0 0 24px rgba(79, 216, 255, 0.25); margin-top: 8px; }
+.lobby .cta b { font-size: 18px; }
+/* ISS: the current call, above the options */
+.iss-q { grid-column: 1; grid-row: 2; font-size: 15px; line-height: 1.35; color: #fff; padding: 2px 2px 0; }
+.iss-layout .iss-choices { grid-row: 3; }
+.iss-layout .look { grid-row: 2 / 4; align-self: end; }
+.iss-choices .m-tile.bad { opacity: 0.35; text-decoration: line-through; border-color: #ff5a3c; }
+.iss-layout { grid-template-rows: auto auto 1fr; }

@@ -114,7 +114,7 @@ export class MarsMission implements Mission {
       globe.add(m);
     }
     app.space.showModel(globe, 6.5, { spin: false, faceDir: dir.clone().add(new THREE.Vector3(0.35, 0.15, 0)).normalize() });
-    app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 02 · Briefing', subtitle: 'Tap Skip to jump ahead' });
+    app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 02 · Briefing', subtitle: 'Tap Begin when you are ready', cta: 'Begin mission' });
 
     const specs = BRIEF_SPECS.map(([k, val]) => `<div><span>${k}</span><b>${val}</b></div>`).join('');
     const el = html(`

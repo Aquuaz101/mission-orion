@@ -77,7 +77,7 @@ function connect() {
         }
         return;
       case 'layout':
-        renderLayout(msg.layout, msg.title, msg.subtitle, msg.missions);
+        renderLayout(msg.layout, msg.title, msg.subtitle, msg.missions, msg.cta);
         return;
       case 'hud':
         hud = { ...hud, ...msg.hud };
@@ -243,7 +243,7 @@ function slider(el: HTMLInputElement, id: string) {
 }
 
 // ─────────────────────────────────────────────── layouts
-function renderLayout(next: ControllerLayout, title: string, subtitle = '', missions?: MissionEntry[]) {
+function renderLayout(next: ControllerLayout, title: string, subtitle = '', missions?: MissionEntry[], cta?: string) {
   layout = next;
   hud = {};
   axes.l = [0, 0]; axes.r = [0, 0]; axesDirty = true;
@@ -258,6 +258,7 @@ function renderLayout(next: ControllerLayout, title: string, subtitle = '', miss
         <h1>${title}</h1>
         <p>${subtitle}</p>
         <div class="lobby-missions"></div>
+        ${cta ? `<button class="m-tile cta"><span class="mono">READY</span><b>${cta}</b></button>` : ''}
         <button class="btn ghost skip">Skip commander line ›</button>
       </section>`);
     const list = el.querySelector('.lobby-missions')!;
@@ -267,6 +268,7 @@ function renderLayout(next: ControllerLayout, title: string, subtitle = '', miss
       list.appendChild(b);
     }
     el.querySelector('.skip')!.addEventListener('click', () => send({ t: 'tap', id: 'skip' }));
+    el.querySelector('.cta')?.addEventListener('click', () => { vibrate(30); send({ t: 'tap', id: 'confirm' }); });
     main.appendChild(el);
     return;
   }
@@ -328,12 +330,11 @@ function renderLayout(next: ControllerLayout, title: string, subtitle = '', miss
     const el = h(`
       <section class="iss-layout">
         <div class="hud-strip mono"><span class="objective">${title}</span><button class="mini skip">Skip ›</button></div>
+        <div class="iss-q"></div>
         <div class="iss-choices"></div>
-        <button class="interact action disabled"><span class="label">ACTION</span></button>
         <div class="touchpad joy floating look"><div class="knob"></div><div class="pad-hint">Drag to look around</div></div>
       </section>`);
     joystick(el.querySelector('.touchpad')!, 'r', true);
-    holdButton(el.querySelector('.action')!, 'primary');
     el.querySelector('.skip')!.addEventListener('click', () => send({ t: 'tap', id: 'skip' }));
     main.appendChild(el);
     return;
@@ -362,15 +363,17 @@ function applyHud() {
       lastChoices = key;
       box.innerHTML = '';
       (hud.choices ?? []).forEach((c, i) => {
-        const b = h(`<button class="m-tile choice"><span class="mono">OPTION ${i + 1}</span><b>${c}</b></button>`);
-        b.addEventListener('click', () => { vibrate(20); send({ t: 'tap', id: `choice:${i + 1}` }); });
+        const bad = c.startsWith('✕ ');
+        const b = h(`<button class="m-tile choice${bad ? ' bad' : ''}"${bad ? ' disabled' : ''}><span class="mono">OPTION ${i + 1}</span><b></b></button>`);
+        b.querySelector('b')!.textContent = bad ? c.slice(2) : c;
+        if (!bad) b.addEventListener('click', () => { vibrate(20); send({ t: 'tap', id: `choice:${i + 1}` }); });
         box.appendChild(b);
       });
       box.classList.toggle('empty', !(hud.choices ?? []).length);
     }
-    const btn = main.querySelector<HTMLElement>('.action')!;
-    btn.classList.toggle('disabled', !hud.prompt);
-    btn.querySelector('.label')!.textContent = hud.prompt ?? 'ACTION';
+    const q = main.querySelector<HTMLElement>('.iss-q')!;
+    q.textContent = hud.choices?.length ? hud.prompt ?? '' : '';
+    q.hidden = !q.textContent;
   }
   if (layout === 'mars') {
     const b = main.querySelector<HTMLElement>('.batt');

@@ -33,6 +33,9 @@ export class ISSMission implements Mission {
   private choiceResolver: ((i: number) => void) | null = null;
   private choiceCount = 0;
   private actionResolver: (() => void) | null = null;
+  /** When the look input last came from a stick (phone pad / arrow keys); mouse movement after this takes over. */
+  private stickAt = 0;
+  private aim = false;
 
   constructor(private app: App) {}
 
@@ -49,6 +52,7 @@ export class ISSMission implements Mission {
   setPaused(p: boolean) {
     this.paused = p;
     if (this.stage) this.stage.paused = p;
+    this.setAim(!p && this.aim);
     if (p) this.pausedAt = performance.now();
     else if (this.pausedAt) { this.evaPausedMs += performance.now() - this.pausedAt; this.pausedAt = 0; }
     this.app.sfx.suit(!p && !!this.stage, this.stress);
@@ -57,6 +61,7 @@ export class ISSMission implements Mission {
     this.disposed = true;
     this.disposers.forEach((d) => d());
     this.disposers = [];
+    this.setAim(false);
     this.app.sfx.suit(false, 0);
     this.app.sfx.stopLoops();
     this.app.sfx.setMuffle(0);
@@ -102,9 +107,12 @@ export class ISSMission implements Mission {
     const { app } = this;
     app.engine.setStage(app.space);
     app.space.setShot('briefing', 0.7);
-    const iss = app.assets.models.iss?.scene;
-    app.space.showModel(iss ? iss.clone(true) : null, 5.2);
-    app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 03 · Briefing', subtitle: 'Tap Skip to jump ahead' });
+    // the briefing shows the same NASA high-detail station the spacewalk uses (streams in if not cached yet)
+    const hd = app.assets.models.issHd?.scene;
+    const lite = app.assets.models.iss?.scene;
+    app.space.showModel((hd ?? lite)?.clone(true) ?? null, 5.2);
+    let briefingOpen = true;
+    app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 03 · Briefing', subtitle: 'Tap Begin when you are ready', cta: 'Begin spacewalk' });
     const specs = ISS_SPECS.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     const el = html(`
       <section class="briefing">
@@ -123,14 +131,24 @@ export class ISSMission implements Mission {
             <button class="btn primary go">Begin spacewalk <span class="kbd">ENTER</span></button>
             <button class="btn ghost abort">Abort</button>
           </div>
-          <p class="brief-note">Earth imagery: NASA Blue Marble Next Generation (MODIS) · ISS model: NASA 3D Resources</p>
+          <p class="brief-note mono brief-load">${hd ? 'STATION MODEL · NASA ISS (IGOAL) · READY' : 'STATION MODEL · NASA ISS (IGOAL) · LOADING'}</p>
+          <p class="brief-note">Earth imagery: NASA VIIRS (NOAA-20) + Blue Marble Next Generation · ISS model: NASA 3D Resources (IGOAL)</p>
         </div>
         <div class="brief-caption mono fade-up" style="animation-delay:.4s">INTERNATIONAL SPACE STATION · LOW EARTH ORBIT</div>
       </section>`);
     void app.screens.show(el);
     void this.say(briefingLines(app.mode), true);
+    if (!hd) {
+      const tag = $(el, '.brief-load');
+      app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (tag.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`))
+        .then((g) => {
+          tag.textContent = 'STATION MODEL · NASA ISS (IGOAL) · READY';
+          if (briefingOpen && !this.disposed) app.space.showModel(g.scene.clone(true), 5.2);
+        })
+        .catch(() => (tag.textContent = 'STATION MODEL · OFFLINE COPY'));
+    }
     return new Promise((resolve) => {
-      const done = (go: boolean) => { off(); app.commander.clear(); app.sfx[go ? 'confirm' : 'back'](); resolve(go); };
+      const done = (go: boolean) => { briefingOpen = false; off(); app.commander.clear(); app.sfx[go ? 'confirm' : 'back'](); resolve(go); };
       $(el, '.go').addEventListener('click', () => done(true));
       $(el, '.abort').addEventListener('click', () => done(false));
       const off = app.input.onPress((id) => { if (!this.paused && (id === 'confirm' || id === 'primary')) done(true); });
@@ -162,8 +180,10 @@ export class ISSMission implements Mission {
     await line('HELMET LIGHTS · ON · ORBITAL NIGHT');
     await line('EV1 OUTSIDE · QUEST AIRLOCK · HATCH SHUT', 600);
     app.engine.setStage(st);
-    app.input.pointerEnabled = true;
-    app.input.lookMode = 'drag';
+    app.input.pointerEnabled = false; // the mouse aims directly (no drag); decisions are number keys
+    this.stickAt = performance.now();
+    this.aim = true;
+    this.setAim(true);
     this.hud = this.buildHud();
     await app.screens.show(this.hud);
     app.link.send({ t: 'layout', layout: 'iss', title: 'Stand by' });
@@ -346,8 +366,9 @@ export class ISSMission implements Mission {
     const order = [2, 0, 1];
     const shapeSvg = (s: string, c: string) => s === 'circle' ? `<circle r="15" fill="none" stroke="${c}" stroke-width="4"/>` : s === 'triangle' ? `<path d="M0 -17 L15 11 L-15 11 Z" fill="none" stroke="${c}" stroke-width="4"/>` : `<rect x="-14" y="-14" width="28" height="28" fill="none" stroke="${c}" stroke-width="4"/>`;
     for (const plug of CONNECTORS) {
-      const opts: Choice[] = order.map((k, i) => ({ label: `Socket ${String.fromCharCode(65 + i)}`, sub: '', ok: CONNECTORS[k].id === plug.id, why: L.connWrong, icon: shapeSvg(CONNECTORS[k].shape, '#e9eef6') } as Choice & { icon: string }));
-      const idx = await this.choose(`Mate plug ${plug.name}`, opts, { icon: shapeSvg(plug.shape, plug.color), silentPrompt: true, quiet: true });
+      const glyph = { circle: '● circle', triangle: '▲ triangle', square: '■ square' } as Record<string, string>;
+      const opts: Choice[] = order.map((k, i) => ({ label: `Socket ${String.fromCharCode(65 + i)}`, phone: `Socket ${String.fromCharCode(65 + i)} · ${glyph[CONNECTORS[k].shape]}`, sub: '', ok: CONNECTORS[k].id === plug.id, why: L.connWrong, icon: shapeSvg(CONNECTORS[k].shape, '#e9eef6') } as Choice & { icon: string; phone: string }));
+      const idx = await this.choose(`Mate plug ${plug.name}`, opts, { icon: shapeSvg(plug.shape, plug.color), silentPrompt: true, quiet: true, phonePrompt: `Plug ${plug.name} has a ${glyph[plug.shape]} key. Which socket matches?` });
       const port = st.newOru.ports[order[idx]];
       await st.R.anchor(() => st.worldOf(port), 0.9, 0.5);
       sfx.connector(true);
@@ -442,6 +463,8 @@ export class ISSMission implements Mission {
   private async exitCut() {
     const st = this.stage!, hud = this.hud!, { sfx } = this.app;
     this.app.input.pointerEnabled = false;
+    this.aim = false;
+    this.setAim(false);
     sfx.suit(false, 0);
     hud.classList.add('sat');
     const sat = html(`<div class="sat-ui mono"><div class="sat-flash"></div><div class="sat-tag"><i></i><span class="sat-name">EV1 · P3 truss</span></div><div class="sat-info"><b>Mission complete</b><span class="sat-alt"></span></div></div>`);
@@ -479,7 +502,7 @@ export class ISSMission implements Mission {
    * Wrong picks are explained by ACE and the player chooses again. Timed choices default to the
    * correct call when time runs out (ACE makes the call for you).
    */
-  private choose(prompt: string, options: Choice[], o: { timer?: number; prompt?: string; icon?: string; silentPrompt?: boolean; quiet?: boolean } = {}): Promise<number> {
+  private choose(prompt: string, options: Choice[], o: { timer?: number; prompt?: string; phonePrompt?: string; icon?: string; silentPrompt?: boolean; quiet?: boolean } = {}): Promise<number> {
     const { sfx } = this.app;
     const id = ++this.choiceCount;
     this.decisions.total += o.quiet ? 0 : 1;
@@ -488,6 +511,7 @@ export class ISSMission implements Mission {
       <div class="choices${o.timer ? ' timed' : ''}">
         <div class="ch-prompt mono">${o.icon ? `<svg viewBox="-20 -20 40 40" class="ch-icon">${o.icon}</svg>` : ''}<span>${escapeHtml(o.prompt ?? prompt)}</span></div>
         ${o.timer ? '<div class="ch-timer"><i></i></div>' : ''}
+        ${this.app.mode === 'device' ? `<div class="ch-hint mono">Press ${options.map((_, i) => `<b class="kbd">${i + 1}</b>`).join(' ')}</div>` : ''}
         <div class="ch-row">${options.map((c, i) => `
           <button class="ch-card" data-i="${i}">
             <span class="kbd">${i + 1}</span>
@@ -499,7 +523,8 @@ export class ISSMission implements Mission {
     requestAnimationFrame(() => el.classList.add('in'));
     sfx.objective();
     if (!o.silentPrompt && !o.timer) void this.say(prompt);
-    this.sendPhone(null, options.map((c) => c.label));
+    const phoneLabels = options.map((c) => (c as Choice & { phone?: string }).phone ?? c.label);
+    this.sendPhone(o.phonePrompt ?? o.prompt ?? prompt, phoneLabels);
     return new Promise((resolve) => {
       let done = false;
       let left = o.timer ?? 0;
@@ -524,6 +549,8 @@ export class ISSMission implements Mission {
         const card = el.querySelectorAll('.ch-card')[i] as HTMLButtonElement;
         card.classList.add('bad');
         card.disabled = true;
+        phoneLabels[i] = '✕ ' + phoneLabels[i];
+        this.sendPhone(undefined, [...phoneLabels]);
         if (c.why) void this.say({ text: c.why, mood: 'alert' }, true);
       };
       this.choiceResolver = pick;
@@ -559,11 +586,21 @@ export class ISSMission implements Mission {
     if (!st || !this.hud || this.paused) return;
     // free look with the mouse / right stick, springing back when released
     const { input } = this.app;
-    const m = input.consumeMouse();
+    input.consumeMouse();
     const r = input.stickR();
-    st.lookYaw = THREE.MathUtils.clamp(st.lookYaw - m.dx * 0.0025 - r.x * dt * 1.4, -1.1, 1.1);
-    st.lookPitch = THREE.MathUtils.clamp(st.lookPitch - m.dy * 0.0025 + r.y * dt * 1.0, -0.7, 0.7);
-    if (!m.dx && !m.dy && !r.x && !r.y) { st.lookYaw *= Math.exp(-dt * 0.6); st.lookPitch *= Math.exp(-dt * 0.6); }
+    const now = performance.now();
+    if (r.x || r.y) {
+      this.stickAt = now;
+      st.lookYaw = THREE.MathUtils.clamp(st.lookYaw - r.x * dt * 1.4, -1.1, 1.1);
+      st.lookPitch = THREE.MathUtils.clamp(st.lookPitch + r.y * dt * 1.0, -0.7, 0.7);
+    } else if (input.pointer.movedAt > this.stickAt) {
+      // the mouse points the helmet: screen edge = the edge of the look range (a little before, so it is reachable)
+      const k = Math.min(1, dt * 7);
+      const ty = -THREE.MathUtils.clamp(input.pointer.x / 0.92, -1, 1) * 1.1;
+      const tp = THREE.MathUtils.clamp(input.pointer.y / 0.92, -1, 1) * 0.7;
+      st.lookYaw += (ty - st.lookYaw) * k;
+      st.lookPitch += (tp - st.lookPitch) * k;
+    } else { st.lookYaw *= Math.exp(-dt * 0.6); st.lookPitch *= Math.exp(-dt * 0.6); }
 
     // suit telemetry (heart rate follows stress)
     this.heart += ((72 + this.stress * 70) - this.heart) * Math.min(1, dt * 0.6);
@@ -581,6 +618,8 @@ export class ISSMission implements Mission {
   }
 
   private stressTo(v: number) { this.stress = v; }
+  /** Hide the cursor while the mouse is steering the helmet camera. */
+  private setAim(on: boolean) { document.body.classList.toggle('iss-aim', on); }
 
   // ─────────────────────────────────────────── HUD
   private buildHud() {
@@ -605,7 +644,7 @@ export class ISSMission implements Mission {
         <div class="ih-alert mono"><b>⚠ DEBRIS ALERT</b><span>Fragment cloud crossing orbit</span><em>Dramatised · based on a real event (Nov 2021)</em></div>
         <div class="progress-pill mono"><i></i><span></span></div>
         <div class="ih-cross"></div>
-        ${device ? `<footer class="ih-keys mono"><span><b class="kbd">1</b><b class="kbd">2</b><b class="kbd">3</b> decide</span><span><b class="kbd">Drag</b> look</span><span><b class="kbd">Space</b> tool</span><span><b class="kbd">Tab</b> skip line</span><span><b class="kbd">Esc</b> pause</span></footer>` : ''}
+        ${device ? `<footer class="ih-keys mono"><span><b class="kbd">1</b><b class="kbd">2</b><b class="kbd">3</b> decide</span><span><b class="kbd">Mouse</b> look</span><span><b class="kbd">Tab</b> skip line</span><span><b class="kbd">Esc</b> pause</span></footer>` : ''}
       </section>`);
   }
 
