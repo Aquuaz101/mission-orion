@@ -219,20 +219,13 @@ export class ISSMission implements Mission {
     // Decision 1: tether. The left hand clips onto the ring on the hatch frame
     await this.choose(L.q1, CHOICES.q1);
     const ring = st.air(0.08, 0.75, 0.55);
-    const out = st.air(1, 0, 0).sub(st.air(0, 0, 0)).normalize();
-    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-    const tetherCut = this.cut('EV1 · Safety tether', [
-      { dur: 2.6, fov: 36, cam: (k) => ring.clone().addScaledVector(out, 0.36 - 0.1 * k).add(V(0, 0.1 - 0.04 * k, 0)).addScaledVector(st.sideways, 0.14), look: () => ring.clone().add(V(0, -0.04, 0)) },
-      { dur: 4.2, fov: 48, cam: (k) => { const a = 0.35 + k * 0.9, r = 2.6 + 6 * k; return st.head.addScaledVector(out, Math.cos(a) * r).addScaledVector(st.sideways, Math.sin(a) * r).add(V(0, 0.9 + 2.2 * k, 0)); }, look: () => st.head.add(V(0, -0.5, 0)) },
-    ]);
-    await st.move([st.air(0.3, 0.5, 0.36)], [st.air(0.5, 0.95, 1.6)], 1.0);
+    await st.move([st.air(0.3, 0.5, 0.36)], [st.air(0.5, 0.95, 1.6)], 1.2);
     await st.L.anchor(() => ring, 0.95, 0.6);
     sfx.clip();
     st.kick(0.12);
     st.tetherAnchor = ring;
     this.setStatus('tether', 'SECURED');
-    await tetherCut;
-    this.alive();
+    await this.sleep(350);
     void st.L.rest(0.7);
     await this.say(L.tetherOk);
   }
@@ -269,12 +262,6 @@ export class ISSMission implements Mission {
     sfx.impact(0.6);
     sfx.setMusic('triumph');
     void this.say(L.sunrise2, true);
-    const up = new THREE.Vector3(0, 1, 0);
-    await this.cut('Orbital sunrise · 420 km', [
-      { dur: 3.4, fov: 42, cam: (k) => st.head.addScaledVector(st.sunDir, -(7.5 - 2 * k)).addScaledVector(up, 1.1).addScaledVector(st.sideways, 1.4), look: () => st.head.addScaledVector(st.sunDir, 3) },
-      { dur: 3.2, fov: 54, cam: (k) => st.head.addScaledVector(st.sideways, 5.5 + k).addScaledVector(up, 1.6).addScaledVector(st.facing, -2.5 + 2.5 * k), look: () => st.head.addScaledVector(up, -0.8) },
-    ]);
-    this.alive();
     await ride;
     this.alive();
     // off the arm, hand over hand along the rails on the truss face to the worksite
@@ -501,7 +488,7 @@ export class ISSMission implements Mission {
     await st.move([st.at(0.4, -0.66, 0.6)], [st.at(0.4, -1.6, 0.1)], 0.8);
     const strike = new THREE.Vector3(-3, 6, -32);
     await this.cut('Impact · solar array', [
-      { dur: 2.6, fov: 34, live: true, cam: (k) => st.head.addScaledVector(st.facing, 0.42).addScaledVector(st.sideways, 0.3 - 0.08 * k).addScaledVector(new THREE.Vector3(0, 1, 0), 0.08), look: () => st.head },
+      { dur: 2.6, fov: 34, cam: (k) => st.head.addScaledVector(st.facing, 0.42).addScaledVector(st.sideways, 0.3 - 0.08 * k).addScaledVector(new THREE.Vector3(0, 1, 0), 0.08), look: () => st.head },
       { dur: 2.8, slow: 0.35, fov: 50, at: () => { st.burst(strike, 120, 5); st.kick(0.5, 0.25); sfx.impact(1); }, cam: (k) => strike.clone().add(new THREE.Vector3(5 - 1.2 * k, 2.2, 7 - 1.5 * k)), look: () => strike },
     ]);
     this.alive();

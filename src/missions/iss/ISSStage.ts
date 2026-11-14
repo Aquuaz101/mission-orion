@@ -59,11 +59,7 @@ class HandCtl {
   /** World point this hand holds (anchor mode), for the third-person astronaut to mirror. */
   target(): Vec | null { return this.mode === 'anchor' && this.getter ? this.getter() : null; }
   private snapshot() { this.from.p.copy(this.h.root.position); this.from.q.copy(this.h.root.quaternion); this.from.g = this.h.grip; this.t = 0; }
-  /** True while an idle gesture owns this hand; any scripted pose/anchor/rest takes over immediately. */
-  idling = false;
-  get settled() { return this.t >= 1; }
-  pose(p: [number, number, number], r: [number, number, number], g: number, dur = 0.5, idle = false) {
-    this.idling = idle;
+  pose(p: [number, number, number], r: [number, number, number], g: number, dur = 0.5) {
     this.snapshot();
     this.mode = 'pose';
     this.getter = null;
@@ -75,7 +71,6 @@ class HandCtl {
   }
   rest(dur = 0.6) { return this.pose([0.25 * this.side, -0.4, -0.5], [0.3, 0.22 * this.side, 0.35 * this.side], 0.3, dur); }
   anchor(get: Getter, grip = 0.9, dur = 0.45, contact: 'wrap' | 'tip' = 'wrap') {
-    this.idling = false;
     this.snapshot();
     this.logged = false;
     this.gripLocal = contact === 'tip' ? HandCtl.TIP_LOCAL : HandCtl.GRIP_LOCAL;
@@ -126,26 +121,14 @@ class HandCtl {
     } else {
       root.position.lerpVectors(this.from.p, this.to.p, e);
       root.quaternion.slerpQuaternions(this.from.q, this.to.q, e);
-      // breathing sway: the arms rise and settle with each breath, never quite still
-      const bt = performance.now() / 1000;
-      root.position.y += Math.sin(bt * 1.6 + this.side) * 0.006;
-      root.position.x += Math.sin(bt * 0.45 + this.side * 2) * 0.004;
       setGrip(this.h, THREE.MathUtils.lerp(this.from.g, this.to.g, e));
     }
     if (this.t >= 1 && this.onReached) { const r = this.onReached; this.onReached = null; r(); }
   }
 }
 
-/** Fine micro-scratch / smudge roughness map for the gold visor. */
-function visorScratches() {
-  const c = document.createElement('canvas'); c.width = c.height = 512;
-  const g = c.getContext('2d')!;
-  g.fillStyle = 'rgb(18,18,18)'; g.fillRect(0, 0, 512, 512);
-  for (let i = 0; i < 220; i++) { const x = Math.random() * 512, y = Math.random() * 512, a = Math.random() * Math.PI, l = 8 + Math.random() * 60; g.strokeStyle = `rgba(120,120,120,${0.15 + Math.random() * 0.35})`; g.lineWidth = Math.random() < 0.8 ? 0.6 : 1.4; g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
-  for (let i = 0; i < 14; i++) { const r = 20 + Math.random() * 70, x = Math.random() * 512, y = Math.random() * 512; const grd = g.createRadialGradient(x, y, 0, x, y, r); grd.addColorStop(0, 'rgba(90,90,90,0.35)'); grd.addColorStop(1, 'rgba(90,90,90,0)'); g.fillStyle = grd; g.fillRect(x - r, y - r, r * 2, r * 2); }
-  const t = new THREE.CanvasTexture(c);
-  return t;
-}
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
+const _tq = new THREE.Quaternion(), _tv = new THREE.Vector3();
 
 /** Rotation taking the pair (a1 primary, b1 secondary) onto (a2, b2): a1 → a2 exactly, b1 → b2 as closely as possible. */
 const _m1 = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _pq = new THREE.Quaternion();
@@ -189,7 +172,6 @@ export class ISSStage implements Stage {
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
   private lamps: THREE.SpotLight[] = [];
-  private airlockLight: THREE.PointLight;
 
   // body + camera
   readonly body = new THREE.Object3D();
@@ -249,15 +231,8 @@ export class ISSStage implements Stage {
   private suitRest = new Map<THREE.Object3D, THREE.Quaternion>();
   private suitPrev = new Map<THREE.Object3D, THREE.Quaternion>();
   private suitDt = 0.016;
-  // live visor reflections for the close-up: a cube camera at the helmet, the real station + debris + Sun + an Earth proxy
-  private visorRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
-  private visorCam = new THREE.CubeCamera(0.05, 3000, this.visorRT);
-  private visorLive = false;
-  private visorTick = 0;
-  readonly visorMat = new THREE.MeshPhysicalMaterial({ color: 0xe6ad45, metalness: 1, roughness: 0.035, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.6 });
-  private earthProxy: THREE.Mesh;
-  private sunProxy: THREE.Mesh;
-  private idleT = 7;
+  /** Gold sun visor: smooth and polished, reflecting the scene environment (space, Sun, Earth glow). */
+  readonly visorMat = new THREE.MeshPhysicalMaterial({ color: 0xe6ad45, metalness: 1, roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.04, envMapIntensity: 1.6 });
   private cineLight: THREE.PointLight;
   /** Playback rate for slow motion inside cutscenes. */
   timeScale = 1;
@@ -335,9 +310,6 @@ export class ISSStage implements Stage {
     this.dock.position.copy(HATCH);
     this.dock.rotation.y = -Math.PI / 2;
     this.scene.add(this.dock);
-    this.airlockLight = new THREE.PointLight(0xffe6c0, 0.9, 5, 2);
-    this.dock.add(this.airlockLight);
-    this.airlockLight.position.set(-2.2, 0.4, 0);
 
     // ── worksite on the P3 forward face (local +Z = outward = world -X; local +X = world +Z)
     this.site.position.copy(SITE);
@@ -409,11 +381,6 @@ export class ISSStage implements Stage {
       this.scene.add(suit);
       this.suit = suit;
     }
-    this.visorMat.roughnessMap = visorScratches();
-    this.earthProxy = new THREE.Mesh(new THREE.SphereGeometry(2600, 48, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(0.32, 0.5, 1.0) }));
-    this.sunProxy = new THREE.Mesh(new THREE.SphereGeometry(40, 16, 8), new THREE.MeshBasicMaterial({ color: new THREE.Color(40, 36, 30) }));
-    for (const o of [this.earthProxy, this.sunProxy]) { o.layers.set(1); this.scene.add(o); }
-    this.visorCam.layers.enable(1);
     this.cineLight = new THREE.PointLight(0xdfe8ff, 0, 14, 1.6);
     this.scene.add(this.cineLight);
     for (const sx of [-0.14, 0.14]) {
@@ -502,27 +469,6 @@ export class ISSStage implements Stage {
 
   private buildAirlock() {
     const m = this.m, air = this.dock;
-    const inner = new THREE.Mesh(new THREE.CylinderGeometry(0.98, 0.98, 3.4, 40, 1, true), m.interior.clone());
-    (inner.material as THREE.MeshStandardMaterial).side = THREE.BackSide;
-    inner.rotation.z = Math.PI / 2;
-    inner.position.x = -1.75;
-    const back = new THREE.Mesh(new THREE.CircleGeometry(0.98, 32), m.interior);
-    back.position.x = -3.45; back.rotation.y = Math.PI / 2;
-    air.add(inner, back);
-    for (const x of [-2.9, -2.1, -1.3, -0.5]) {
-      const rib = new THREE.Mesh(new THREE.TorusGeometry(0.96, 0.025, 8, 40), m.aluDark);
-      rib.rotation.y = Math.PI / 2; rib.position.x = x;
-      air.add(rib);
-    }
-    for (const a of [0.8, Math.PI - 0.8]) {
-      const hr = handrail(m, 1.6);
-      hr.rotation.x = Math.PI / 2 + a;
-      hr.position.set(-1.7, -Math.cos(a) * 0.95, Math.sin(a) * 0.95);
-      air.add(hr);
-    }
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.03, 0.12), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff0d8, emissiveIntensity: 2.5 }));
-    lamp.position.set(-2.1, 0.95, 0);
-    air.add(lamp);
     // hatch frame + door hinged at the top (opens outward)
     const frame = new THREE.Mesh(new THREE.RingGeometry(0.52, 1.02, 48), m.alu);
     frame.rotation.y = Math.PI / 2;
@@ -654,7 +600,7 @@ export class ISSStage implements Stage {
    * keeps running underneath, and the suit mirrors it (body pose, hands on whatever the gloves hold).
    * Resolves when the shots end or the player skips; the helmet view comes back.
    */
-  async cine(shots: { dur: number; cam: (k: number) => Vec; look: (k: number) => Vec; fov?: number; slow?: number; at?: () => void; live?: boolean }[], o: { hold?: number; beforeExit?: () => Promise<void> } = {}) {
+  async cine(shots: { dur: number; cam: (k: number) => Vec; look: (k: number) => Vec; fov?: number; slow?: number; at?: () => void }[], o: { hold?: number; beforeExit?: () => Promise<void> } = {}) {
     if (!this.suit) return;
     const state = (this.cineState = { skip: false });
     this.L.h.root.visible = this.R.h.root.visible = false;
@@ -670,7 +616,6 @@ export class ISSStage implements Stage {
       this.camera.updateProjectionMatrix();
       this.timeScale = sh.slow ?? 1;
       sh.at?.();
-      this.visorLive = !!sh.live;
       if (sh === shots[0] && o.hold) { this.ext!.pos.copy(sh.cam(0)); this.ext!.look.copy(sh.look(0)); await this.animate(o.hold, () => {}); }
       await this.animate(sh.dur * (sh.slow ?? 1), (k) => {
         if (state.skip) return;
@@ -680,7 +625,6 @@ export class ISSStage implements Stage {
       });
     }
     this.timeScale = 1;
-    this.visorLive = false;
     if (o.beforeExit) await o.beforeExit();
     this.ext = null;
     this.cineState = null;
@@ -695,38 +639,6 @@ export class ISSStage implements Stage {
   }
   skipCine() { if (this.cineState) this.cineState.skip = true; }
 
-  /**
-   * First-person idles: when both hands are free and settled, every 6-14 s one natural gesture plays: turning a glove
-   * to check the palm, reading the cuff checklist, flexing the fingers, adjusting the opposite wrist ring.
-   * Any scripted grab or pose cancels it on the spot.
-   */
-  private updateIdle(dt: number) {
-    const L = this.L, R = this.R;
-    const free = L.mode === 'pose' && R.mode === 'pose' && !this.ext && !this.cineState;
-    if (!free) { this.idleT = Math.max(this.idleT, 4); return; }
-    if (L.idling || R.idling) return;
-    if (!L.settled || !R.settled) return;
-    this.idleT -= dt;
-    if (this.idleT > 0) return;
-    this.idleT = 6 + Math.random() * 8;
-    const pick = Math.floor(Math.random() * 4);
-    const back = (h: HandCtl, delay: number) => setTimeout(() => { if (h.idling) { h.idling = false; void h.rest(0.9); } }, delay);
-    if (pick === 0) {          // check the right palm: raise it, turn it toward the visor, look it over
-      void R.pose([0.1, -0.17, -0.55], [-1.25, 0.25, 2.6], 0.15, 0.9, true).then(() => { if (R.idling) void R.pose([0.08, -0.16, -0.54], [-1.35, 0.1, 2.9], 0.35, 1.1, true); });
-      back(R, 3200);
-    } else if (pick === 1) {   // read the cuff checklist on the left forearm
-      void L.pose([-0.12, -0.21, -0.46], [0.85, -0.55, -0.4], 0.35, 1.0, true);
-      back(L, 3400);
-    } else if (pick === 2) {   // flex the fingers (pressurised gloves fight you)
-      void R.pose([0.19, -0.27, -0.46], [0.2, 0.15, 0.3], 0.95, 0.6, true).then(() => { if (R.idling) void R.pose([0.2, -0.28, -0.47], [0.25, 0.2, 0.32], 0.1, 0.7, true); });
-      void L.pose([-0.2, -0.27, -0.46], [0.25, -0.18, -0.3], 0.9, 0.7, true).then(() => { if (L.idling) void L.pose([-0.21, -0.28, -0.47], [0.25, -0.2, -0.32], 0.15, 0.8, true); });
-      back(R, 2200); back(L, 2400);
-    } else {                   // adjust the left wrist ring with the right glove
-      void L.pose([-0.06, -0.24, -0.45], [0.5, -0.4, -0.6], 0.3, 0.9, true);
-      void R.pose([0.03, -0.21, -0.44], [0.4, 0.9, 0.9], 0.8, 1.0, true);
-      back(L, 2900); back(R, 2700);
-    }
-  }
   /** Helmet (eye) position and the astronaut's facing, for framing shots. */
   get head() { return this.body.position.clone(); }
   get facing() { return new THREE.Vector3(0, 0, -1).applyQuaternion(this.body.quaternion); }
@@ -882,7 +794,7 @@ export class ISSStage implements Stage {
       if (s.t >= 1) this.sunTween = null;
     }
     this.orbitAngle += ORBIT_RATE * dt;
-    this.earth.quaternion.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -this.orbitAngle).multiply(this.earthQ0);
+    this.earth.quaternion.setFromAxisAngle(Z_AXIS, -this.orbitAngle).multiply(this.earthQ0);
     this.updateSun(dt);
 
     if (this.travel) {
@@ -898,7 +810,6 @@ export class ISSStage implements Stage {
     this.R.update(dt);
     this.suitDt = dt;
     if (this.suit?.visible) this.poseSuit();
-    this.updateIdle(dt);
     this.updateTether();
     this.updateDebris(dt);
     this.updateShadowCasters(dt);
@@ -954,7 +865,7 @@ export class ISSStage implements Stage {
     const e = THREE.MathUtils.degToRad(this.sunElev);
     this.sunDir.set(-Math.cos(e), Math.sin(e), 0.16).normalize();
     this.earthMat.uniforms.sunDir.value.copy(this.sunDir);
-    this.earthMat.uniforms.sunLocal.value.copy(this.sunDir).applyQuaternion(this.earth.quaternion.clone().invert());
+    this.earthMat.uniforms.sunLocal.value.copy(this.sunDir).applyQuaternion(_tq.copy(this.earth.quaternion).invert());
     this.atmo.uniforms.sunDir.value.copy(this.sunDir);
     this.sunSprite.position.copy(this.sunDir).multiplyScalar(20000);
     const col = this.sunColor();
@@ -971,7 +882,6 @@ export class ISSStage implements Stage {
     this.hemi.color.setRGB(0.012, 0.014, 0.022);
     this.scene.environmentIntensity = 0.12 + 0.88 * day;
     for (const l of this.lamps) l.intensity = this.ext ? 0 : 4.5 * (1 - up);
-    this.airlockLight.intensity = 0; // hatch is shut behind us: no interior light spill
   }
 
   private updateCamera(dt: number) {
@@ -1029,7 +939,7 @@ export class ISSStage implements Stage {
     const n = pos.count, d = hip.distanceTo(a);
     for (let i = 0; i < n; i++) {
       const k = i / (n - 1);
-      const p = hip.clone().lerp(a, k);
+      const p = _tv.copy(hip).lerp(a, k);
       const sag = Math.sin(k * Math.PI) * Math.min(1.4, d * 0.1);
       p.x += Math.sin(k * 5 + this.elapsed * 0.6) * sag * 0.25;
       p.y += Math.sin(k * Math.PI) * sag * 0.4 - sag * 0.2;
@@ -1056,7 +966,7 @@ export class ISSStage implements Stage {
     this.streaks = this.streaks.filter((s) => (s.life -= dt) > 0);
     for (const s of this.streaks) {
       s.p.addScaledVector(s.v, dt);
-      const tail = s.p.clone().addScaledVector(s.v.clone().normalize(), -s.len);
+      const tail = _tv.copy(s.v).normalize().multiplyScalar(-s.len).add(s.p);
       arr.setXYZ(j++, s.p.x, s.p.y, s.p.z);
       arr.setXYZ(j++, tail.x, tail.y, tail.z);
     }
@@ -1070,20 +980,6 @@ export class ISSStage implements Stage {
   }
 
   render(renderer: THREE.WebGLRenderer) {
-    if (this.visorLive && this.suit?.visible && (this.visorTick++ & 1) === 0) {
-      // real reflections: station, debris streaks, sparks, the Sun and Earth around the helmet
-      const head = this.body.position;
-      this.visorCam.position.copy(head);
-      this.earthProxy.position.copy(head).add(new THREE.Vector3(0, -3000, 0));
-      this.sunProxy.position.copy(head).addScaledVector(this.sunDir, 900);
-      this.suit.visible = false;
-      this.visorCam.update(renderer, this.scene);
-      this.suit.visible = true;
-      if (this.visorMat.envMap !== this.visorRT.texture) { this.visorMat.envMap = this.visorRT.texture; this.visorMat.needsUpdate = true; }
-    } else if (!this.visorLive && this.visorMat.envMap === this.visorRT.texture) {
-      this.visorMat.envMap = null;
-      this.visorMat.needsUpdate = true;
-    }
     if (this.raysOn) {
       // occlusion buffer: the Sun disc, with everything in the station scene drawn black in front of it
       const cam = this.camera;
