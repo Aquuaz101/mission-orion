@@ -521,8 +521,11 @@ export class MarsStage implements Stage {
     const climb = THREE.MathUtils.radToDeg(Math.atan2(rise, 1.8));
     // climbing costs speed
     if (climb > 6) this.speed *= 1 - Math.min(0.5, (climb - 6) / 60) * dt * 3;
+    // side-slope (tilt) limit: Perseverance is rated for ~30° of tilt
+    const rx = f.z, rz = -f.x;
+    const tilt = THREE.MathUtils.radToDeg(Math.atan2(Math.abs(t.heightAt(nx + rx * 1.12, nz + rz * 1.12) - t.heightAt(nx - rx * 1.12, nz - rz * 1.12)), 2.24));
     const lim = t.size / 2 - 10;
-    let ok = climb < MAX_CLIMB_DEG && Math.abs(nx) < lim && Math.abs(nz) < lim;
+    let ok = climb < MAX_CLIMB_DEG && tilt < 27 && Math.abs(nx) < lim && Math.abs(nz) < lim;
     if (ok) for (const b of this.boulders) {
       const dx = nx + f.x * dir * 1.2 - b.x, dz = nz + f.z * dir * 1.2 - b.z;
       if (dx * dx + dz * dz < (b.r + 1.2) ** 2) { ok = false; break; }
@@ -752,7 +755,7 @@ export class MarsStage implements Stage {
     this.rover.rotation.set(0, 0, 0);
     this.rover.rotateY(this.roverYaw);
     this.rover.rotateX(-this.pitch);
-    this.rover.rotateZ(-this.roll);
+    this.rover.rotateZ(this.roll); // +roll lifts the rover's +x side (was inverted: rover tilted against side slopes)
   }
 
   private updateArm() {
