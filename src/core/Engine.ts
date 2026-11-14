@@ -73,7 +73,19 @@ export class Engine {
     this.applyPixelRatio();
   }
 
+  /**
+   * Request a canvas resize. Resizing a WebGL canvas clears its drawing buffer, so doing it
+   * after a frame was rendered (e.g. from DRS at the end of frame(), or from a UI handler)
+   * makes the browser present a black frame. The resize is therefore deferred to the start
+   * of the next frame, immediately before that frame renders.
+   */
   applyPixelRatio() {
+    this.resizePending = true;
+  }
+  private resizePending = false;
+
+  private doResize() {
+    this.resizePending = false;
     const pr = Math.max(0.5, this.basePixelRatio * this.resScale);
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -101,6 +113,7 @@ export class Engine {
     this.last = now;
     this.elapsed += dt;
     for (const fn of this.tickers) fn(dt, this.elapsed);
+    if (this.resizePending) this.doResize(); // after tickers (they may switch stage), right before render
     if (this.stage) {
       this.renderer.info.reset();
       this.stage.update(dt, this.elapsed);
