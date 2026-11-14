@@ -171,6 +171,7 @@ export class ISSMission implements Mission {
     const gltf = await app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (ld.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`)).catch(() => null);
     ld.textContent = gltf ? 'STATION MODEL · NASA ISS (IGOAL) · READY' : 'STATION MODEL · UNAVAILABLE';
     await app.assets.loadModel('emuArm', '/models/emu_arm.glb').catch(() => null); // EMU gloves (Blender, skinned)
+    await app.assets.loadModel('emuSuit', '/models/emu_suit.glb').catch(() => null); // full EMU for cutscenes (Blender)
     this.alive();
     this.stage = new ISSStage(app.assets, app.engine.renderer, app.quality, gltf);
     const st = this.stage;
@@ -217,14 +218,21 @@ export class ISSMission implements Mission {
 
     // Decision 1: tether. The left hand clips onto the ring on the hatch frame
     await this.choose(L.q1, CHOICES.q1);
-    await st.move([st.air(0.3, 0.5, 0.36)], [st.air(0.5, 0.95, 1.6)], 1.4);
     const ring = st.air(0.08, 0.75, 0.55);
-    await st.L.anchor(() => ring, 0.95, 0.7);
+    const out = st.air(1, 0, 0).sub(st.air(0, 0, 0)).normalize();
+    const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    const tetherCut = this.cut('EV1 · Safety tether', [
+      { dur: 2.6, fov: 36, cam: (k) => ring.clone().addScaledVector(out, 0.36 - 0.1 * k).add(V(0, 0.1 - 0.04 * k, 0)).addScaledVector(st.sideways, 0.14), look: () => ring.clone().add(V(0, -0.04, 0)) },
+      { dur: 4.2, fov: 48, cam: (k) => { const a = 0.35 + k * 0.9, r = 2.6 + 6 * k; return st.head.addScaledVector(out, Math.cos(a) * r).addScaledVector(st.sideways, Math.sin(a) * r).add(V(0, 0.9 + 2.2 * k, 0)); }, look: () => st.head.add(V(0, -0.5, 0)) },
+    ]);
+    await st.move([st.air(0.3, 0.5, 0.36)], [st.air(0.5, 0.95, 1.6)], 1.0);
+    await st.L.anchor(() => ring, 0.95, 0.6);
     sfx.clip();
     st.kick(0.12);
     st.tetherAnchor = ring;
     this.setStatus('tether', 'SECURED');
-    await this.sleep(350);
+    await tetherCut;
+    this.alive();
     void st.L.rest(0.7);
     await this.say(L.tetherOk);
   }
@@ -261,6 +269,12 @@ export class ISSMission implements Mission {
     sfx.impact(0.6);
     sfx.setMusic('triumph');
     void this.say(L.sunrise2, true);
+    const up = new THREE.Vector3(0, 1, 0);
+    await this.cut('Orbital sunrise · 420 km', [
+      { dur: 3.4, fov: 42, cam: (k) => st.head.addScaledVector(st.sunDir, -(7.5 - 2 * k)).addScaledVector(up, 1.1).addScaledVector(st.sideways, 1.4), look: () => st.head.addScaledVector(st.sunDir, 3) },
+      { dur: 3.2, fov: 54, cam: (k) => st.head.addScaledVector(st.sideways, 5.5 + k).addScaledVector(up, 1.6).addScaledVector(st.facing, -2.5 + 2.5 * k), look: () => st.head.addScaledVector(up, -0.8) },
+    ]);
+    this.alive();
     await ride;
     this.alive();
     // off the arm, hand over hand along the rails on the truss face to the worksite
@@ -275,6 +289,15 @@ export class ISSMission implements Mission {
 
   /** Hand over hand along the worksite rails (site-local x positions): each hand grabs a real rail and holds it
    *  while the body pulls past, then the other hand takes the next one. */
+  /** Play a third-person cutscene (letterboxed, titled) while the action runs underneath. */
+  private cut(title: string, shots: Parameters<ISSStage['cine']>[0]) {
+    const hud = this.hud!;
+    $(hud, '.cine-title').textContent = title;
+    hud.classList.add('cine');
+    this.app.sfx.whoosh();
+    return this.stage!.cine(shots).then(() => { hud.classList.remove('cine'); });
+  }
+
   /** In the foot restraint the astronaut leans toward the work: shift the head toward a point on the battery face. */
   private lean(world: THREE.Vector3, dur = 0.35) {
     const st = this.stage!;
@@ -335,6 +358,11 @@ export class ISSMission implements Mission {
     st.showTool(false);
     // both hands on the ORU handle; the unit comes out and is handed off to a temporary stow point
     this.progress('Swapping battery units');
+    const swapCut = this.cut('Battery R&R · P3 truss', [
+      { dur: 3.4, fov: 46, cam: (k) => st.at(2.4 - 0.5 * k, 0.75, 2.7 + 0.3 * k), look: () => st.at(0, 0, 0.8) },
+      { dur: 3.6, fov: 44, cam: (k) => st.at(-3.9 + 0.5 * k, -1.3, 3.6), look: () => st.at(-0.6, -0.3, 1.0) },
+      { dur: 3.2, fov: 46, cam: (k) => st.at(2.6, -0.9 + 0.3 * k, 3.6 - 0.4 * k), look: () => st.at(0, 0, 0.6) },
+    ]);
     const oldG = st.oldOru.group, newG = st.newOru.group;
     const handle = (g: THREE.Object3D, x: number) => () => st.worldOf(g, new THREE.Vector3(x, 0.36, 0.3));
     await st.move([st.at(0, 0.3, 1.08)], [st.at(0, 0.12, 0.27)], 0.5); // re-centre on the top handles
@@ -354,6 +382,8 @@ export class ISSMission implements Mission {
     await Promise.all([st.tweenObject(newG, new THREE.Vector3(0, 0, 0.27), null, 1.1), st.move([st.at(0, 0.08, 0.95)], [st.at(0, 0.0, 0.27)], 1.1)]);
     sfx.clank();
     st.kick(0.2);
+    await swapCut;
+    this.alive();
     void st.L.rest(0.6);
     this.hideProgress();
     // bolts: the tool drives each one
@@ -428,12 +458,19 @@ export class ISSMission implements Mission {
     sfx.setMusic('rescue', 0.6);
     this.stressTo(0.75);
     st.debris = 0.45;
+    const upv = new THREE.Vector3(0, 1, 0);
+    const coverCut = this.cut('Fragment cloud · inbound', [
+      { dur: 3.4, slow: 0.4, fov: 56, at: () => { st.debris = 1; }, cam: (k) => st.head.addScaledVector(st.debrisFrom, -(6.5 - 1.5 * k)).addScaledVector(upv, 2.2).addScaledVector(st.sideways, 3), look: () => st.head.addScaledVector(st.debrisFrom, 3) },
+      { dur: 2.8, fov: 42, cam: (k) => st.at(2.7 - 0.4 * k, -2.0, 2.7), look: () => st.head.addScaledVector(upv, -0.4) },
+    ]);
     // tuck in close against the truss face, facing it, a hand on each rail; a second tether clip
     await st.move([st.at(0.4, -0.62, 0.66)], [st.at(0.4, -0.72, -0.4)], 1.1);
     sfx.clip();
     await Promise.all([st.L.anchor(() => st.at(0, -0.72, 0.1), 0.98, 0.35), st.R.anchor(() => st.at(0.8, -0.72, 0.1), 0.98, 0.35)]);
     sfx.connector(false);
     st.kick(0.2);
+    await coverCut;
+    st.debris = 0.45;
     this.alive();
     // the stream arrives
     st.debris = 1;
@@ -445,6 +482,12 @@ export class ISSMission implements Mission {
     void this.say(L.shieldOk, true);
     // helmet down: look along the rail, away from the stream
     await st.move([st.at(0.4, -0.66, 0.6)], [st.at(0.4, -1.6, 0.1)], 0.8);
+    const strike = new THREE.Vector3(-3, 6, -32);
+    await this.cut('Impact · solar array', [
+      { dur: 2.2, fov: 38, cam: (k) => st.head.addScaledVector(st.facing, 0.42).addScaledVector(st.sideways, 0.3 - 0.08 * k).addScaledVector(new THREE.Vector3(0, 1, 0), 0.08), look: () => st.head },
+      { dur: 2.8, slow: 0.35, fov: 50, at: () => { st.burst(strike, 120, 5); st.kick(0.5, 0.25); sfx.impact(1); }, cam: (k) => strike.clone().add(new THREE.Vector3(5 - 1.2 * k, 2.2, 7 - 1.5 * k)), look: () => strike },
+    ]);
+    this.alive();
     st.shake = 0.9;
     this.stressTo(0.95);
     const hits: [number, THREE.Vector3][] = [[500, new THREE.Vector3(-3, 6, -32)], [900, st.at(0.9, 1.35, -0.3)], [600, st.at(-2.2, 0.6, 0.1)], [1100, new THREE.Vector3(-6, 9, -40)], [700, st.at(1.8, -1.6, 0.2)]];
@@ -594,6 +637,7 @@ export class ISSMission implements Mission {
 
   private onPress(id: string) {
     if (this.paused) return;
+    if (this.stage?.inCine && (id === 'confirm' || id === 'primary')) return this.stage.skipCine();
     const m = id.match(/^(?:key:(?:Digit|Numpad)([1-4])|choice:([1-4]))$/);
     if (m && this.choiceResolver) return this.choiceResolver(Number(m[1] ?? m[2]) - 1);
     if ((id === 'primary' || id === 'interact' || id === 'action') && this.actionResolver) {
@@ -667,6 +711,8 @@ export class ISSMission implements Mission {
         <div class="ih-alert mono"><b>⚠ DEBRIS ALERT</b><span>Fragment cloud crossing orbit</span><em>Dramatised · based on a real event (Nov 2021)</em></div>
         <div class="progress-pill mono"><i></i><span></span></div>
         <div class="ih-cross"></div>
+        <div class="cine-title mono"></div>
+        <div class="cine-skip mono">${device ? '<b class="kbd">Space</b> skip' : ''}</div>
         ${device ? `<footer class="ih-keys mono"><span><b class="kbd">1</b><b class="kbd">2</b><b class="kbd">3</b> decide</span><span><b class="kbd">Mouse</b> look</span><span><b class="kbd">Tab</b> skip line</span><span><b class="kbd">Esc</b> pause</span></footer>` : ''}
       </section>`);
   }

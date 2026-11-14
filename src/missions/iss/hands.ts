@@ -43,6 +43,19 @@ function normalFrom(height: HTMLCanvasElement, strength = 2.5) {
   return t;
 }
 
+/** Materials for the third-person EMU suit (emu_suit.glb), sharing the gloves' fabric and metal looks. */
+export function suitMaterials(): Record<string, THREE.Material> {
+  const m = (shared ??= makeMats());
+  return {
+    suit: m.fabric, grey: m.fabricDark, chrome: m.chrome, ano: m.anoRed, dark: m.black,
+    hard: new THREE.MeshStandardMaterial({ color: 0xf1f1ee, roughness: 0.42, metalness: 0.0 }),
+    stripe: new THREE.MeshStandardMaterial({ color: 0xb3171b, roughness: 0.7 }),
+    visor: new THREE.MeshStandardMaterial({ color: 0xe0a83c, metalness: 1, roughness: 0.07, envMapIntensity: 2.2 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x0b0d10, metalness: 0.9, roughness: 0.06 }),
+    lens: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4e0, emissiveIntensity: 6 }),
+  };
+}
+
 function makeMats() {
   const r = rnd(11);
   // Ortho-fabric outer layer: fine basket weave, quilting seams, scuffs

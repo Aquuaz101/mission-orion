@@ -88,3 +88,14 @@ body.iss-aim .ihud .choices { pointer-events: none; }
 .ihud .ch-hint { margin: 0 0 10px; font-size: 11px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--hud-dim); }
 .ihud .ch-hint .kbd { margin: 0 2px; }
 .ihud .ch-card .kbd { font-size: 13px; min-width: 22px; padding: 3px 7px; color: #fff; border-color: rgba(160, 230, 255, 0.6); }
+
+/* cutscenes: letterbox bars, helmet HUD hidden, a skip hint */
+.ihud::before, .ihud::after { content: ''; position: absolute; left: 0; right: 0; height: 0; background: #000; z-index: 4; transition: height 0.5s var(--ease-out, ease); pointer-events: none; }
+.ihud::before { top: 0; } .ihud::after { bottom: 0; }
+.ihud.cine::before, .ihud.cine::after { height: 11vh; }
+.ihud.cine .choices, .ihud.cine .ih-alert, .ihud.cine .ih-tl, .ihud.cine .ih-tr, .ihud.cine .ih-obj, .ihud.cine .ih-cross, .ihud.cine .ih-keys, .ihud.cine .progress-pill, .ihud.cine .loc-card { opacity: 0 !important; transition: opacity 0.3s; }
+.ihud .cine-skip { position: absolute; right: 4vw; bottom: 3.6vh; z-index: 5; font-size: 10px; letter-spacing: 0.22em; text-transform: uppercase; color: rgba(255,255,255,0.55); opacity: 0; transition: opacity 0.4s; }
+.ihud.cine .cine-skip { opacity: 1; }
+.ihud .cine-title { position: absolute; left: 5vw; bottom: 13.5vh; z-index: 5; font-size: 11px; letter-spacing: 0.3em; text-transform: uppercase; color: #fff; opacity: 0; text-shadow: 0 1px 8px #000; }
+.ihud.cine .cine-title { animation: cineTitle 3.2s ease forwards; }
+@keyframes cineTitle { 0% { opacity: 0; transform: translateX(-10px); } 15% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }

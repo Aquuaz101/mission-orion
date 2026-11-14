@@ -9,7 +9,7 @@ import type { Stage } from '../../core/Engine';
 import type { Assets } from '../../core/Assets';
 import type { Quality } from '../../app/App';
 import { makeMaterials, handrail, batteryOru, pistolGripTool, type Mats, type Oru } from './parts';
-import { emuArm, emuArmModel, setGrip, type EmuHand } from './hands';
+import { emuArm, emuArmModel, suitMaterials, setGrip, type EmuHand } from './hands';
 import { earthMaterial, atmosphereMaterial, RaysShader, VisorShader, visorDirt, glowTex, R_EARTH, ALT } from './issfx';
 
 /**
@@ -55,6 +55,8 @@ class HandCtl {
   constructor(public h: EmuHand, private cam: THREE.Camera, private side: number) {
     this.shoulder = new THREE.Vector3(0.22 * side, -0.32, 0.08);
   }
+  /** World point this hand holds (anchor mode), for the third-person astronaut to mirror. */
+  target(): Vec | null { return this.mode === 'anchor' && this.getter ? this.getter() : null; }
   private snapshot() { this.from.p.copy(this.h.root.position); this.from.q.copy(this.h.root.quaternion); this.from.g = this.h.grip; this.t = 0; }
   pose(p: [number, number, number], r: [number, number, number], g: number, dur = 0.5) {
     this.snapshot();
@@ -109,7 +111,7 @@ class HandCtl {
       const need = fromShoulder.length();
       if (need > HandCtl.MAX_REACH) {
         fromShoulder.setLength(HandCtl.MAX_REACH);
-        if (this.t >= 1 && !this.logged && need - HandCtl.MAX_REACH > 0.02) { this.logged = true; HandCtl.misses.push({ side: this.side, short: +(need - HandCtl.MAX_REACH).toFixed(3), at: performance.now() }); }
+        if (this.t >= 1 && !this.logged && this.cam.parent?.type !== 'Scene' && need - HandCtl.MAX_REACH > 0.02) { this.logged = true; HandCtl.misses.push({ side: this.side, short: +(need - HandCtl.MAX_REACH).toFixed(3), at: performance.now() }); }
       }
       const target = this.shoulder.clone().add(fromShoulder);
       root.position.lerpVectors(this.from.p, target, e);
@@ -220,6 +222,15 @@ export class ISSStage implements Stage {
   private tickers = new Set<(dt: number) => void>();
   /** Debris stream source direction (the cloud arrives from behind the station, the wake side). */
   readonly debrisFrom = new THREE.Vector3(1, 0, 0);
+  /** Third-person EMU astronaut for cutscenes (head = the helmet camera position). */
+  private suit: THREE.Object3D | null = null;
+  private suitJ: Record<string, THREE.Object3D> = {};
+  private suitRest = new Map<THREE.Object3D, THREE.Quaternion>();
+  private cineLight: THREE.PointLight;
+  /** Playback rate for slow motion inside cutscenes. */
+  timeScale = 1;
+  private cineState: { skip: boolean } | null = null;
+  get inCine() { return !!this.cineState; }
   /** External (third-person) camera for the mission-exit pull-out. */
   private ext: { pos: THREE.Vector3; look: THREE.Vector3 } | null = null;
   private glint: THREE.Sprite;
@@ -347,6 +358,22 @@ export class ISSStage implements Stage {
     this.buildRig();
     this.body.add(this.rig);
     this.rig.visible = false;
+    // third-person astronaut (cutscenes): the Blender EMU suit, posed every frame from the first-person choreography
+    const suitGltf = assets.models.emuSuit;
+    if (suitGltf) {
+      const sm = suitMaterials();
+      const suit = suitGltf.scene.clone(true);
+      suit.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) { mesh.material = sm[(mesh.material as THREE.Material).name] ?? sm.suit; mesh.castShadow = mesh.receiveShadow = true; }
+        if (/^j[A-Z]/.test(o.name)) { this.suitJ[o.name] = o; this.suitRest.set(o, o.quaternion.clone()); }
+      });
+      suit.visible = false;
+      this.scene.add(suit);
+      this.suit = suit;
+    }
+    this.cineLight = new THREE.PointLight(0xdfe8ff, 0, 14, 1.6);
+    this.scene.add(this.cineLight);
     for (const sx of [-0.14, 0.14]) {
       const lamp = new THREE.SpotLight(0xe8f0ff, 0, 22, 0.42, 0.7, 2);
       lamp.position.set(sx, 0.16, 0.05);
@@ -579,6 +606,95 @@ export class ISSStage implements Stage {
       this.tickers.add(step);
     });
   }
+  /**
+   * Cutscene: leave the helmet, show the astronaut and play camera shots. Each shot gives camera position and look
+   * target as functions of eased progress k (so shots can track the moving astronaut). The first-person choreography
+   * keeps running underneath, and the suit mirrors it (body pose, hands on whatever the gloves hold).
+   * Resolves when the shots end or the player skips; the helmet view comes back.
+   */
+  async cine(shots: { dur: number; cam: (k: number) => Vec; look: (k: number) => Vec; fov?: number; slow?: number; at?: () => void }[]) {
+    if (!this.suit) return;
+    const state = (this.cineState = { skip: false });
+    this.L.h.root.visible = this.R.h.root.visible = false;
+    this.visor.enabled = false;
+    this.dust.visible = false;
+    this.scene.attach(this.camera);
+    this.suit.visible = true;
+    this.ext = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
+    for (const sh of shots) {
+      if (state.skip) break;
+      this.camera.fov = sh.fov ?? 50;
+      this.camera.near = 0.02;
+      this.camera.updateProjectionMatrix();
+      this.timeScale = sh.slow ?? 1;
+      sh.at?.();
+      await this.animate(sh.dur * (sh.slow ?? 1), (k) => {
+        if (state.skip) return;
+        const e = k * k * (3 - 2 * k);
+        this.ext!.pos.copy(sh.cam(e));
+        this.ext!.look.copy(sh.look(e));
+      });
+    }
+    this.timeScale = 1;
+    this.ext = null;
+    this.cineState = null;
+    this.suit.visible = false;
+    this.cineLight.intensity = 0;
+    this.body.add(this.camera);
+    this.camera.fov = 72; this.camera.near = 0.03;
+    this.camera.updateProjectionMatrix();
+    this.L.h.root.visible = this.R.h.root.visible = true;
+    this.visor.enabled = true;
+    this.dust.visible = true;
+  }
+  skipCine() { if (this.cineState) this.cineState.skip = true; }
+  /** Helmet (eye) position and the astronaut's facing, for framing shots. */
+  get head() { return this.body.position.clone(); }
+  get facing() { return new THREE.Vector3(0, 0, -1).applyQuaternion(this.body.quaternion); }
+  get sideways() { return new THREE.Vector3(1, 0, 0).applyQuaternion(this.body.quaternion); }
+
+  /** Place and pose the suit from the body + the gloves' targets. */
+  private poseSuit() {
+    const suit = this.suit!;
+    // the body quaternion carries the head pitch; keep the suit upright-ish (half the pitch) so it reads as a person
+    const q = this.body.quaternion.clone();
+    suit.quaternion.copy(q);
+    suit.position.copy(this.body.position).sub(new THREE.Vector3(0, 1.66, -0.03).applyQuaternion(q));
+    for (const [j, r] of this.suitRest) j.quaternion.copy(r);
+    suit.updateMatrixWorld(true);
+    const J = this.suitJ;
+    const aim = (joint: THREE.Object3D | undefined, target: Vec) => {
+      if (!joint) return;
+      const p = joint.getWorldPosition(new THREE.Vector3());
+      const inv = joint.getWorldQuaternion(new THREE.Quaternion()).invert();
+      const dir = target.clone().sub(p).applyQuaternion(inv).normalize();
+      joint.quaternion.multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), dir));
+      joint.updateMatrixWorld(true);
+    };
+    const t = this.elapsed;
+    for (const [hand, nm] of [[this.L, 'L'], [this.R, 'R']] as const) {
+      const tgt = hand.target();
+      if (tgt) {
+        aim(J['jShoulder' + nm], tgt);
+        J['jElbow' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.25));
+      } else {
+        // relaxed float: arms a little forward and out, slow drift
+        const s = nm === 'L' ? -1 : 1;
+        J['jShoulder' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.45 + Math.sin(t * 0.7 + s) * 0.05, 0, 0.18 * s)));
+        J['jElbow' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(0.6, 0, 0)));
+      }
+    }
+    // legs: a relaxed weightless bend (knees forward), tighter crouch under alert
+    const crouch = this.alert ? 0.75 : 0.25;
+    for (const nm of ['L', 'R']) {
+      J['jHip' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(crouch * 0.8, 0, 0)));
+      J['jKnee' + nm]?.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-crouch * 1.3, 0, 0)));
+    }
+    // a key light near the camera so night shots still read (the helmet lamps light the work, not the suit)
+    this.cineLight.position.copy(this.camera.position).add(new THREE.Vector3(0, 0.6, 0));
+    this.cineLight.intensity = 2.5 * (1 - this.sunUp * 0.7);
+  }
+
   /** Screen position (0..1, y down) of a world point. */
   toScreen(p: Vec) {
     const v = p.clone().project(this.camera);
@@ -660,6 +776,7 @@ export class ISSStage implements Stage {
   // ───────────────────────────────────────────── per frame
   update(dt: number) {
     if (this.paused) return;
+    dt *= this.timeScale;
     this.elapsed += dt;
     for (const f of [...this.tickers]) f(dt);
     if (this.sunTween) {
@@ -684,6 +801,7 @@ export class ISSStage implements Stage {
     this.updateCamera(dt);
     this.L.update(dt);
     this.R.update(dt);
+    if (this.suit?.visible) this.poseSuit();
     this.updateTether();
     this.updateDebris(dt);
     this.updateShadowCasters(dt);
