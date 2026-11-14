@@ -2,7 +2,8 @@ import { Engine } from '../core/Engine';
 import { Assets, ASSET_JOBS } from '../core/Assets';
 import { Link } from '../core/Link';
 import { Input, type ControlMode } from '../core/Input';
-import { Sfx } from '../core/Sfx';
+import { Sfx, type Mix } from '../core/Sfx';
+import { ACE_LINES } from '../core/aceLines';
 import { Commander } from '../core/Commander';
 import { SpaceStage } from '../stages/SpaceStage';
 import { ScreenHost, html, openModal, $, $$, wait } from '../ui/dom';
@@ -44,7 +45,7 @@ export class App {
     const screenLayer = html('<div class="screen-layer"></div>');
     this.ui.append(screenLayer, this.badge, html('<div class="vignette"></div>'));
     this.screens = new ScreenHost(screenLayer);
-    this.commander = new Commander(this.ui);
+    this.commander = new Commander(this.ui, this.sfx);
     this.applyQuality();
 
     this.input.onPress((id) => {
@@ -85,6 +86,7 @@ export class App {
     await loading.ready();
     this.sfx.unlock();
     this.sfx.setAmbience('space');
+    this.sfx.setMusic('menu');
     this.sfx.confirm();
     this.showMenu();
   }
@@ -128,9 +130,9 @@ export class App {
     if (!this.introDone) {
       this.introDone = true;
       void this.commander.say([
-        'Welcome, Operator. I am ORION Control, your Mission Commander.',
-        'Today you will operate NASA-inspired instruments and robotic explorers, from right here on Earth.',
-        'First, choose how you would like to control your missions.',
+        ACE_LINES.welcome1,
+        ACE_LINES.welcome2,
+        ACE_LINES.welcome3,
       ]);
     }
   }
@@ -139,7 +141,7 @@ export class App {
     if (mode === 'device') return this.setMode('device', true);
     const pairing = pairingScreen(this.link, this.sfx, (m) => { pairing.dispose(); this.setMode(m, true); }, () => { pairing.dispose(); this.showControlSelect(); });
     void this.screens.show(pairing.el);
-    void this.commander.say('Scan the code with your phone camera. Both devices need to be on the same network.', { interrupt: true });
+    void this.commander.say(ACE_LINES.pairing, { interrupt: true });
   }
 
   setMode(mode: ControlMode, announce = false) {
@@ -148,9 +150,7 @@ export class App {
     this.updateBadge();
     if (announce) {
       void this.commander.say(
-        mode === 'phone'
-          ? 'Controller linked. Every input on your phone now drives the mission. The keyboard stays active as a backup.'
-          : 'Keyboard and mouse confirmed. Control hints will appear on screen during each mission.',
+        mode === 'phone' ? ACE_LINES.phoneLinked : ACE_LINES.keyboard,
         { interrupt: true },
       );
     }
@@ -207,6 +207,7 @@ export class App {
     }
     if (this.mission) return;
     this.commander.clear();
+    this.sfx.setMusic('none');
     const Ctor = await load();
     const mission = new Ctor(this);
     this.mission = mission;
@@ -216,7 +217,10 @@ export class App {
     this.mission = null;
     this.commander.clear();
     this.engine.setStage(this.space);
+    this.sfx.stopLoops();
+    this.sfx.setMuffle(0);
     this.sfx.setAmbience('space');
+    this.sfx.setMusic('menu');
     this.input.pointerEnabled = false;
     if (exit.to === 'restart') return this.launch(id);
     if (exit.to === 'mission') return this.launch(exit.id);
@@ -309,18 +313,24 @@ export class App {
   private settingsPanel() {
     const el = html(`
       <div>
-        <div class="settings-row"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" class="vol"><span class="mono vol-v"></span></div>
-        <div class="settings-row"><span>Commander voice</span><span class="muted">Spoken lines use your browser's built-in offline voice. Subtitles are always shown.</span><div class="seg voice"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+        <div class="settings-row"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" class="vol" data-k="master"><span class="mono vol-v"></span></div>
+        <div class="settings-row"><span>Music</span><input type="range" min="0" max="1" step="0.05" class="vol" data-k="music"><span class="mono vol-v"></span></div>
+        <div class="settings-row"><span>Effects &amp; ambience</span><input type="range" min="0" max="1" step="0.05" class="vol" data-k="sfx"><span class="mono vol-v"></span></div>
+        <div class="settings-row"><span>ACE voice volume</span><input type="range" min="0" max="1" step="0.05" class="vol" data-k="voice"><span class="mono vol-v"></span></div>
+        <div class="settings-row"><span>ACE voice</span><span class="muted">ACE speaks with pre-generated voice lines (works offline); any line without a file uses your browser's voice. Subtitles are always shown.</span><div class="seg voice"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
         <div class="settings-row"><span>Graphics quality</span><span class="muted">Shadows, anti-aliasing, light shafts, rock density and effects. Takes effect on the next mission.</span><div class="seg quality"><button data-v="low">Low</button><button data-v="medium">Medium</button><button data-v="high">High</button></div></div>
         <div class="settings-row"><span>Dynamic resolution</span><span class="muted">Automatically lowers render resolution to hold ~60 FPS (the HUD stays sharp).</span><div class="seg drs"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
         <div class="settings-row"><span>Performance overlay</span><span class="muted">FPS, frame time, resolution and draw calls. Shortcut: F3.</span><div class="seg fps"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
       </div>`);
-    const vol = $<HTMLInputElement>(el, '.vol');
-    vol.value = String(this.sfx.level);
-    const showVol = () => ($(el, '.vol-v').textContent = `${Math.round(Number(vol.value) * 100)}%`);
-    showVol();
-    vol.addEventListener('input', () => { this.sfx.setVolume(Number(vol.value)); showVol(); });
-    vol.addEventListener('change', () => this.sfx.blip());
+    for (const vol of $$<HTMLInputElement>(el, '.vol')) {
+      const k = vol.dataset.k as keyof Mix;
+      const out = vol.nextElementSibling as HTMLElement;
+      vol.value = String(this.sfx.mixLevels[k]);
+      const showVol = () => (out.textContent = `${Math.round(Number(vol.value) * 100)}%`);
+      showVol();
+      vol.addEventListener('input', () => { this.sfx.setMix({ [k]: Number(vol.value) }); showVol(); });
+      vol.addEventListener('change', () => this.sfx.blip());
+    }
 
     const seg = (sel: string, current: string, apply: (v: string) => void) => {
       const btns = $$(el, `${sel} button`);
@@ -330,7 +340,7 @@ export class App {
     };
     seg('.voice', this.commander.voiceEnabled ? 'on' : 'off', (v) => {
       this.commander.setVoiceEnabled(v === 'on');
-      if (v === 'on') void this.commander.say('Voice channel online.', { interrupt: true });
+      if (v === 'on') void this.commander.say(ACE_LINES.voiceOn, { interrupt: true });
     });
     seg('.quality', this.quality, (v) => {
       this.quality = v as Quality;

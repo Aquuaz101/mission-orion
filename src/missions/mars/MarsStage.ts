@@ -70,13 +70,19 @@ const GodRaysShader = {
 
 /** Final colour grade (display space): warm split-tone, filmic contrast, vignette, fine grain. */
 const GradeShader = {
-  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, grain: { value: 0.035 }, storm: { value: 0 } },
+  uniforms: { tDiffuse: { value: null }, time: { value: 0 }, grain: { value: 0.035 }, storm: { value: 0 }, ca: { value: 0 }, alert: { value: 0 }, flash: { value: 0 } },
   vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float time; uniform float grain; uniform float storm; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float time; uniform float grain; uniform float storm;
+    uniform float ca; uniform float alert; uniform float flash; varying vec2 vUv;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main(){
-      vec3 c = texture2D(tDiffuse, vUv).rgb;
+      vec3 c;
+      if (ca > 0.001) {
+        // lens fringing on impacts / heavy buffeting (stronger toward the frame edges)
+        vec2 o = (vUv - 0.5) * ca * 0.012;
+        c = vec3(texture2D(tDiffuse, vUv + o).r, texture2D(tDiffuse, vUv).g, texture2D(tDiffuse, vUv - o).b);
+      } else c = texture2D(tDiffuse, vUv).rgb;
       float l = dot(c, vec3(0.299, 0.587, 0.114));
       // split-tone: cool-violet shadows, golden highlights
       c = mix(c * vec3(0.92, 0.93, 1.05), c * vec3(1.06, 0.99, 0.88), smoothstep(0.1, 0.75, l));
@@ -85,7 +91,11 @@ const GradeShader = {
       c = mix(vec3(dot(c, vec3(0.299, 0.587, 0.114))), c, 1.08 - storm * 0.25);
       vec2 d = vUv - 0.5;
       c *= 1.0 - dot(d, d) * (0.75 + storm * 0.6);
-      c += (hash(vUv * 1000.0 + fract(time) * 37.0) - 0.5) * grain;
+      // emergency: slow red-orange pulse creeping in from the frame edges
+      float edge = smoothstep(0.12, 0.45, dot(d, d) * 2.0);
+      c = mix(c, c * vec3(1.25, 0.55, 0.4) + vec3(0.12, 0.02, 0.0), edge * alert * (0.55 + 0.45 * sin(time * 3.4)));
+      c += vec3(1.0, 0.85, 0.7) * flash;
+      c += (hash(vUv * 1000.0 + fract(time) * 37.0) - 0.5) * (grain + storm * 0.03);
       gl_FragColor = vec4(c, 1.0);
     }`,
 };
@@ -177,6 +187,13 @@ export class MarsStage implements Stage {
   // effects
   storm = 0;
   stormFront = 0;
+  /** Sustained camera shake 0..1 (storm buffeting, alarms). */
+  shake = 0;
+  /** Emergency edge pulse 0..1. */
+  alert = 0;
+  private kickT = 0;
+  private kickAmp = 0;
+  private flashT = 0;
   rayStrength = 0.8;
   exposure = 1.08;
   private dust: THREE.Points;
@@ -1039,6 +1056,11 @@ export class MarsStage implements Stage {
     this.hemi.intensity = 0.6 * (1 - s * 0.3);
     this.grade.uniforms.time.value = this.elapsed;
     this.grade.uniforms.storm.value = s;
+    this.flashT = Math.max(0, this.flashT - dt * 2.5);
+    const kickNow = this.kickAmp * Math.exp(-this.kickT * 5);
+    this.grade.uniforms.ca.value = Math.min(1.5, kickNow * 1.2 + s * 0.25);
+    this.grade.uniforms.alert.value += (this.alert - this.grade.uniforms.alert.value) * Math.min(1, dt * 2);
+    this.grade.uniforms.flash.value = this.flashT * this.flashT * 0.5;
     const dm = this.dust.material as THREE.ShaderMaterial;
     dm.uniforms.time.value = this.elapsed;
     dm.uniforms.storm.value = s;
@@ -1174,7 +1196,31 @@ export class MarsStage implements Stage {
     }
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.lookCur);
+    this.applyShake(dt);
     if (this.head) this.head.visible = !(this.view === 'fp' && !this.cine && !this.orbit);
+  }
+
+  /** Impact: a sharp camera jolt, lens fringing and an optional flash (latch clamp, storm hit...). */
+  kick(amount = 1, flash = 0) {
+    this.kickAmp = Math.max(this.kickAmp * Math.max(0, 1 - this.kickT * 3), amount);
+    this.kickT = 0;
+    this.flashT = Math.max(this.flashT, flash);
+  }
+
+  /** Handheld-style shake: layered sines (smooth, no jitter), storm buffeting + decaying kicks. */
+  private applyShake(dt: number) {
+    this.kickT += dt;
+    const kick = this.kickAmp * Math.exp(-this.kickT * 5);
+    const sustained = Math.max(this.shake, this.storm * 0.55 + this.stormFront * 0.15);
+    const t = this.elapsed;
+    const a = sustained * 0.0035 + kick * 0.03;
+    if (a < 1e-5) return;
+    const n1 = Math.sin(t * 13.1) * 0.6 + Math.sin(t * 29.7 + 1.3) * 0.4;
+    const n2 = Math.sin(t * 11.3 + 2.1) * 0.6 + Math.sin(t * 23.9 + 0.4) * 0.4;
+    const kj = kick * Math.sin(this.kickT * 48);
+    this.camera.rotateX(n1 * a + kj * 0.02);
+    this.camera.rotateY(n2 * a * 0.8);
+    this.camera.rotateZ((n2 - n1) * a * 0.4);
   }
 
   /** Emit one dust puff (world position + velocity). */

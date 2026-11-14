@@ -3,3 +3,6 @@ dist/
 data-raw/
 *.log
 .DS_Store
+
+.env.local
+.env

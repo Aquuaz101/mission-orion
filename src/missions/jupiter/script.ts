@@ -19,7 +19,7 @@ export const HUBBLE_SPECS = [
 ] as const;
 
 export const briefingLines = (mode: ControlMode) => [
-  'Welcome to the Deep Space Observatory. Today we will observe Jupiter with the Hubble Space Telescope.',
+  'Welcome to the Deep Space Observatory. Today we will observe Jupiter with the Hubble Space Telescope. I will handle the guidance; you take the pictures.',
   'Hubble launched in 1990. Orbiting above our atmosphere, its 2.4 metre mirror sees without the blur that limits telescopes on the ground.',
   mode === 'phone'
     ? 'Drag on your phone’s touch pad to point the telescope. Use the zoom buttons and the focus slider, then press capture.'
@@ -79,6 +79,8 @@ export const HINTS = {
   refocus: 'Zooming shifts the focus. Re-focus after every zoom.',
   ambient: 'Every year Hubble’s OPAL programme maps Jupiter, building a long-term record of its changing weather.',
 };
+
+export const LOCKED = 'Target locked. Ready when you are.';
 
 export const WRAP_UP = [
   'All three observations are complete. Excellent work, Operator.',

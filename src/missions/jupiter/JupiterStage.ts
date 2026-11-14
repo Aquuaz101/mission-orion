@@ -86,6 +86,10 @@ const ScopeShader = {
     noise: { value: 0.02 },
     time: { value: 0 },
     boot: { value: 1 },
+    zoomVel: { value: 0 },   // signed zoom rate (log field / s): radial smear while zooming
+    panVel: { value: new THREE.Vector2() }, // screen-space slew rate: directional smear while slewing
+    flash: { value: 0 },     // capture flash / sensor readout
+    breathe: { value: 0 },   // focus breathing: image scale shifts slightly while focusing
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -93,6 +97,7 @@ const ScopeShader = {
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse; uniform vec2 resolution; uniform float blur; uniform float gain;
     uniform float noise; uniform float time; uniform float boot;
+    uniform float zoomVel; uniform vec2 panVel; uniform float flash; uniform float breathe;
     varying vec2 vUv;
     const vec2 DISK[16] = vec2[16](
       vec2(-0.94,-0.40), vec2(0.95,-0.77), vec2(-0.09,-0.93), vec2(0.34,0.29),
@@ -103,20 +108,45 @@ const ScopeShader = {
     vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
     void main() {
       vec2 px = blur / resolution;
+      // focus breathing: the image scale shifts a little as the focus moves
+      vec2 uv = (vUv - 0.5) * (1.0 - breathe) + 0.5;
       vec3 c = vec3(0.0);
-      if (blur < 0.4) {
-        c = texture2D(tDiffuse, vUv).rgb;
+      float zv = clamp(zoomVel, -2.5, 2.5);
+      bool moving = abs(zv) > 0.04 || dot(panVel, panVel) > 1e-6;
+      if (moving) {
+        // motion smear while the optics move: radial for zoom, directional for slewing,
+        // with chromatic separation growing toward the edges of the field
+        vec2 d = uv - 0.5;
+        vec2 stepv = d * zv * 0.018 + panVel;
+        for (int i = 0; i < 12; i++) {
+          float t = float(i) / 11.0 - 0.5;
+          vec2 o = stepv * t + DISK[i] * px;
+          float ca = 1.0 + length(d) * abs(zv) * 0.02;
+          c.r += texture2D(tDiffuse, 0.5 + (uv + o - 0.5) * ca).r;
+          c.g += texture2D(tDiffuse, uv + o).g;
+          c.b += texture2D(tDiffuse, 0.5 + (uv + o - 0.5) / ca).b;
+        }
+        c /= 12.0;
+      } else if (blur < 0.4) {
+        c = texture2D(tDiffuse, uv).rgb;
       } else {
         // slight colour fringing grows with defocus, like real optics
         for (int i = 0; i < 16; i++) {
           vec2 o = DISK[i] * px;
-          c.r += texture2D(tDiffuse, vUv + o * 1.04).r;
-          c.g += texture2D(tDiffuse, vUv + o).g;
-          c.b += texture2D(tDiffuse, vUv + o * 0.96).b;
+          c.r += texture2D(tDiffuse, uv + o * 1.04).r;
+          c.g += texture2D(tDiffuse, uv + o).g;
+          c.b += texture2D(tDiffuse, uv + o * 0.96).b;
         }
         c /= 16.0;
       }
       c *= gain;
+      // overexposure: clipped highlights bleed into a soft sensor bloom
+      float over = max(0.0, gain - 1.6);
+      if (over > 0.0) {
+        vec3 b = vec3(0.0);
+        for (int i = 0; i < 8; i++) b += texture2D(tDiffuse, uv + DISK[i * 2] * 9.0 / resolution).rgb;
+        c += max(b / 8.0 * gain - 1.0, 0.0) * min(over, 2.0) * 0.35;
+      }
       c = aces(c * 1.6);
       // sensor read noise: stronger when underexposed
       float g = hash(vUv * resolution + fract(time) * 100.0) - 0.5;
@@ -127,6 +157,12 @@ const ScopeShader = {
       c *= 0.985 + 0.015 * sin(vUv.y * resolution.y * 1.2);
       // boot flicker
       c *= mix(1.0, step(0.5, hash(vec2(floor(time * 30.0), 1.0))) * 0.6 + 0.4, boot);
+      // capture: shutter flash, then a readout sweep down the frame
+      if (flash > 0.0) {
+        c += vec3(0.75, 0.85, 1.0) * pow(flash, 3.0) * 0.6;
+        float sweep = 1.0 - flash;
+        c += vec3(0.3, 0.8, 1.0) * smoothstep(0.012, 0.0, abs(1.0 - vUv.y - sweep)) * flash * 0.8;
+      }
       c = pow(max(c, 0.0), vec3(1.0 / 2.2));
       gl_FragColor = vec4(c, 1.0);
     }`,
@@ -160,6 +196,14 @@ export class JupiterStage implements Stage {
   timeScale = 1; // extra speed-up multiplier on top of TIMELAPSE
   paused = false;
   private bootT = 1;
+  /** Smoothed optics motion (read by the mission for motor sounds). */
+  zoomRate = 0;
+  slewRate = 0;
+  focusRate = 0;
+  private lastFocus = 0.18;
+  private panVel = new THREE.Vector2();
+  private breathe = 0;
+  private flashT = 0;
   private elapsed = 0;
   private pendingCapture: ((url: string) => void) | null = null;
 
@@ -263,9 +307,24 @@ export class JupiterStage implements Stage {
     this.elapsed += dt;
     // Slew + zoom smoothing (Hubble slews smoothly, never snaps).
     const k = 1 - Math.exp(-dt * 7);
+    const c0x = this.center.x, c0y = this.center.y, f0 = this.fieldH;
     this.center.lerp(this.centerTarget, k);
     this.fieldH += (this.fieldTarget - this.fieldH) * (1 - Math.exp(-dt * 8));
     this.bootT = Math.max(0, this.bootT - dt * 1.4);
+
+    // Motion rates drive the optics VFX and the motor sounds.
+    if (dt > 0) {
+      const zr = Math.log(this.fieldH / f0) / dt;
+      this.zoomRate += (zr - this.zoomRate) * Math.min(1, dt * 20);
+      const sx = (this.center.x - c0x) / (this.fieldH * this.aspect), sy = (this.center.y - c0y) / this.fieldH;
+      this.slewRate = Math.hypot(sx, sy) / dt;
+      this.panVel.set(-sx, sy).multiplyScalar(0.9);
+      const fr = (this.focus - this.lastFocus) / dt;
+      this.focusRate += (fr - this.focusRate) * Math.min(1, dt * 14);
+      this.lastFocus = this.focus;
+      this.breathe += (THREE.MathUtils.clamp(this.focusRate * 0.012, -0.02, 0.02) - this.breathe) * Math.min(1, dt * 6);
+      this.flashT = Math.max(0, this.flashT - dt * 1.8);
+    }
 
     const halfH = this.fieldH / 2, halfW = halfH * this.aspect;
     this.camera.left = this.center.x - halfW;
@@ -280,6 +339,16 @@ export class JupiterStage implements Stage {
     u.noise.value = 0.018 + Math.max(0, 0.5 - this.exposure) * 0.12;
     u.time.value = this.elapsed;
     u.boot.value = this.bootT;
+    u.zoomVel.value = Math.abs(this.zoomRate) > 0.04 ? this.zoomRate : 0;
+    u.panVel.value.copy(this.panVel);
+    if (this.panVel.lengthSq() < 4e-6) u.panVel.value.set(0, 0);
+    u.breathe.value = this.breathe;
+    u.flash.value = this.flashT;
+  }
+
+  /** Shutter flash + readout sweep on capture. */
+  flash() {
+    this.flashT = 1;
   }
 
   render(renderer: THREE.WebGLRenderer) {

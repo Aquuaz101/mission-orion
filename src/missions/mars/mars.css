@@ -76,7 +76,8 @@
 .alert-banner { display: none; gap: 14px; align-items: center; padding: 8px 16px; background: rgba(60, 18, 4, 0.82); border: 1px solid rgba(255, 122, 47, 0.6); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #ffd2b5; }
 .alert-banner b { color: var(--c-orange); }
 .alert-banner em { font-style: normal; color: var(--c-orange); border: 1px solid currentColor; padding: 2px 6px; font-size: 9.5px; }
-.mhud.alert .alert-banner { display: flex; animation: alertGlow 1.6s ease-in-out infinite; }
+.mhud.alert .alert-banner { display: flex; animation: alertGlow 1.6s ease-in-out infinite, bannerOut 0.6s ease-in 8s forwards; }
+@keyframes bannerOut { to { opacity: 0; transform: translateY(-14px); visibility: hidden; } }
 @keyframes alertGlow { 50% { box-shadow: 0 0 24px rgba(255, 122, 47, 0.35); } }
 .timer { display: flex; gap: 12px; align-items: baseline; color: var(--c-orange); text-shadow: 0 1px 6px #000; }
 .timer span { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; }

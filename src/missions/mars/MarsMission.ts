@@ -62,6 +62,7 @@ export class MarsMission implements Mission {
   setPaused(p: boolean) {
     this.paused = p;
     if (this.stage) this.stage.paused = p;
+    if (p) this.app.sfx.roverDrive(0);
   }
   dispose() {
     this.disposed = true;
@@ -72,6 +73,8 @@ export class MarsMission implements Mission {
     this.app.input.lookMode = 'drag';
     this.app.space.showModel(null);
     this.app.sfx.setWind(0);
+    this.app.sfx.stopLoops();
+    this.app.sfx.setMuffle(0);
     this.stage?.dispose();
     this.stage = null;
   }
@@ -170,11 +173,15 @@ export class MarsMission implements Mission {
     st.update(0.016);
     st.render(app.engine.renderer); // compile shaders while the screen is black
     await say('TERRAIN · HiRISE DTM · JEZERO DELTA FRONT');
+    app.sfx.riser(1.1);
+    await wait(1000);
     await say('SKY CRANE · TOUCHDOWN CONFIRMED', 450);
+    app.sfx.impact(0.8);
 
     app.space.showModel(null);
     app.engine.setStage(st);
     app.sfx.setAmbience('mars');
+    app.sfx.setMusic('mars');
     app.input.pointerEnabled = true;
     app.input.lookMode = 'lock';
     const img = app.assets.textures.jezeroOrtho?.image as HTMLImageElement | undefined;
@@ -292,7 +299,8 @@ export class MarsMission implements Mission {
         if (s === 'approach') this.showProgress('Autonomous approach');
         if (s === 'deploy') { this.showProgress('Robotic arm · deploying'); this.app.sfx.servo(2.0); }
         if (s === 'reach') { this.showProgress('Positioning drill'); this.app.sfx.servo(1.5); }
-        if (s === 'drill') { this.showProgress('Coring sample'); this.app.sfx.drill(1.4); this.app.link.buzz(900); }
+        if (s === 'drill') { this.showProgress('Coring sample'); this.app.sfx.drill(1.4); this.app.link.buzz(900); st.shake = 0.35; }
+        if (s === 'lift') st.shake = 0;
         if (s === 'lift') { this.showProgress('Sample acquired'); this.app.sfx.blip(); this.app.sfx.servo(1.4); }
         if (s === 'stow') { this.showProgress('Stowing arm · sealing tube'); this.app.sfx.servo(2.0); }
       });
@@ -335,7 +343,11 @@ export class MarsMission implements Mission {
     if (this.disposed || this.phase !== 'explore') return;
     const st = this.stage!;
     this.phase = 'emergency-find';
+    this.app.sfx.braam();
     this.app.sfx.alarm(3);
+    this.app.sfx.setMusic('tension', 0.15);
+    st.kick(0.6, 0.15);
+    st.alert = 1;
     this.app.link.buzz([200, 100, 200, 100, 200]);
     this.hud!.classList.add('alert');
     const ares = this.pois.get('ares')!;
@@ -360,7 +372,9 @@ export class MarsMission implements Mission {
     this.locked = true;
     st.speed = 0;
     this.hud!.classList.add('cine');
+    this.app.sfx.riser(1.6);
     st.setOrbit(st.ares.group.position, 8.5, 2.6, 0.28);
+    setTimeout(() => { if (!this.disposed) { this.app.sfx.braam(); st.kick(0.5); } }, 1500);
     await this.app.commander.say(LINES.aresReveal, { interrupt: true });
     st.setOrbit(null);
     this.hud!.classList.remove('cine');
@@ -392,9 +406,12 @@ export class MarsMission implements Mission {
     });
     this.showProgress('Deploying tow cable');
     this.app.sfx.servo(1.4);
+    this.app.sfx.winch(1.4);
     await st.latch();
-    this.app.sfx.error(); // metallic clank
-    this.app.sfx.success();
+    this.app.sfx.clank();
+    this.app.sfx.impact(0.9);
+    st.kick(1, 0.35);
+    this.app.sfx.setMusic('rescue', 0.5);
     this.app.link.buzz([60, 40, 120]);
     this.hideProgress();
     st.setOrbit(null);
@@ -413,7 +430,11 @@ export class MarsMission implements Mission {
     this.hud!.classList.remove('alert');
     this.hud!.classList.add('cine');
     this.paintObjective();
-    this.app.sfx.confirm();
+    st.alert = 0;
+    this.app.sfx.setMuffle(0);
+    this.app.sfx.roverDrive(0);
+    this.app.sfx.impact(0.7);
+    this.app.sfx.setMusic('triumph');
     const lines = this.app.commander.say(LINES.recovering, { interrupt: true });
     st.setOrbit(st.ares.group.position, 10, 3.5, 0.2);
     const t0 = performance.now();
@@ -452,6 +473,9 @@ export class MarsMission implements Mission {
     this.locked = true;
     this.app.input.releasePointer();
     this.app.sfx.error();
+    this.app.sfx.braam();
+    this.app.sfx.setMusic('none');
+    this.app.sfx.roverDrive(0);
     this.app.link.buzz([300, 100, 300]);
     void this.app.commander.say({ text: LINES.fail, mood: 'alert' }, { interrupt: true });
     const ov = html(`
@@ -485,8 +509,10 @@ export class MarsMission implements Mission {
     st.ares.body.position.y = -0.28;
     this.phase = 'emergency-find';
     this.locked = false;
+    this.flags.delete('t120'); this.flags.delete('t60'); this.flags.delete('t30'); this.flags.delete('lowbatt');
+    this.app.sfx.setMusic('tension', 0.4);
     this.setTarget('ares');
-    void this.app.commander.say({ text: 'Retrying. Locate ARES-7 and attach the tow cable.', mood: 'alert' }, { interrupt: true });
+    void this.app.commander.say({ text: LINES.retry, mood: 'alert' }, { interrupt: true });
   }
 
   private async complete() {
@@ -499,6 +525,8 @@ export class MarsMission implements Mission {
     st.setView('chase');
     hud.classList.remove('fp');
     hud.classList.add('cine', 'sat');
+    this.app.sfx.roverDrive(0);
+    this.app.sfx.setMusic('triumph');
     const lines = this.app.commander.say(LINES.wrap);
     const sat = html(`<div class="sat-ui mono"><div class="sat-flash"></div><div class="sat-tag"><i></i><span>Perseverance-class rover</span></div><div class="sat-info"><b>Mission complete</b><span class="sat-alt"></span></div></div>`);
     hud.appendChild(sat);
@@ -535,6 +563,7 @@ export class MarsMission implements Mission {
     const l = input.stickL();
     if (!this.locked && this.battery > 0 && !st.inCutscene) st.drive(l.y, l.x, dt);
     else if (!st.inCutscene) st.drive(0, 0, dt);
+    this.app.sfx.roverDrive(this.phase === 'complete' || this.phase === 'failed' ? 0 : Math.abs(st.speed) / MAX_SPEED, st.sandiness);
     if (st.blocked && performance.now() - this.lastWarn > 5000) {
       this.lastWarn = performance.now();
       this.flashWarning('TERRAIN TOO STEEP');
@@ -564,6 +593,7 @@ export class MarsMission implements Mission {
       this.app.sfx.setWind(Math.max(st.storm, st.stormFront * 0.4));
       if (this.timer !== null && !st.inCutscene && !this.locked) this.timer = Math.max(0, this.timer - dt);
       if (this.timer === 0 || this.battery <= 0) this.fail();
+      this.emergencyDrama(st);
       if (!this.flags.has('storm') && this.timer !== null && this.timer < EMERGENCY_SECONDS - 28 && !this.app.commander.busy) {
         this.flags.add('storm');
         void this.app.commander.say([LINES.stormFact, LINES.mmrtg]);
@@ -586,6 +616,46 @@ export class MarsMission implements Mission {
     this.paintHud();
     this.sendPhone();
   }
+
+  /** Music intensity, storm muffling, timed callouts and the final-seconds countdown. */
+  private emergencyDrama(st: MarsStage) {
+    const sfx = this.app.sfx, T = this.timer;
+    const towing = this.phase === 'emergency-tow';
+    const urgency = T === null ? 0 : 1 - T / EMERGENCY_SECONDS;
+    sfx.setMusicIntensity(Math.min(1, (towing ? 0.45 : 0.1) + st.stormFront * 0.25 + urgency * 0.6));
+    sfx.setMuffle(st.storm * 0.4);
+    if (!this.flags.has('stormhit') && st.stormFront > 0.65) {
+      this.flags.add('stormhit');
+      sfx.impact(1);
+      st.kick(0.8, 0.1);
+      this.app.link.buzz([120, 60, 120]);
+      if (!this.app.commander.busy) void this.app.commander.say(LINES.stormHit);
+    }
+    if (T === null || this.phase === 'failed') return;
+    const callout = (flag: string, at: number, line: { text: string; mood: 'alert' }) => {
+      if (!this.flags.has(flag) && T <= at && T > at - 5) {
+        this.flags.add(flag);
+        sfx.impact(0.5);
+        void this.app.commander.say(line, { interrupt: !this.app.commander.busy || at <= 30 });
+      }
+    };
+    callout('t120', 120, LINES.twoMin);
+    callout('t60', 60, LINES.oneMin);
+    callout('t30', 30, LINES.thirty);
+    if (!this.flags.has('lowbatt') && this.battery < 0.25) {
+      this.flags.add('lowbatt');
+      sfx.alarm(2);
+      void this.app.commander.say(LINES.lowBatt);
+    }
+    if (towing && !this.flags.has('ridge') && this.distTo(this.pois.get('zone')!.pos) < 45) {
+      this.flags.add('ridge');
+      if (!this.app.commander.busy) void this.app.commander.say(LINES.ridgeClose);
+    }
+    // last 10 seconds: a tick every second
+    const sec = Math.ceil(T);
+    if (T < 10.5 && T > 0 && sec !== this.lastTick) { this.lastTick = sec; sfx.tick(true); }
+  }
+  private lastTick = -1;
 
   // ─────────────────────────────────────────── HUD
   private buildHud() {

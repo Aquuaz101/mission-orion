@@ -1,17 +1,19 @@
 import '../styles/commander.css';
+import type { Sfx } from './Sfx';
+import { voiceId } from './voiceId';
 
 export interface CommanderLine {
   text: string;
-  /** 'alert' paints the box orange and uses a more urgent voice. */
+  /** 'alert' paints the box orange and uses a more urgent delivery. */
   mood?: 'normal' | 'alert';
 }
 
 type Input = string | CommanderLine | (string | CommanderLine)[];
 
 /**
- * The AI Mission Commander: scripted, event-driven lines shown as subtitles
- * and spoken with the browser's offline speech engine (if enabled).
- * Works with no internet and no AI API.
+ * ACE: the mission AI. Scripted, event-driven lines shown as subtitles and spoken with
+ * pre-generated voice files (public/audio/ace, made with ElevenLabs by `npm run gen:audio`).
+ * Lines without a file fall back to the browser's offline speech engine. No network needed.
  */
 export class Commander {
   readonly el: HTMLElement;
@@ -21,18 +23,20 @@ export class Commander {
   private skipCurrent: (() => void) | null = null;
   private idleResolvers: (() => void)[] = [];
   private voice: SpeechSynthesisVoice | null = null;
+  private files = new Map<string, string>();
   voiceEnabled = localStorage.getItem('orion.voice') !== 'off';
 
-  constructor(parent: HTMLElement) {
+  constructor(parent: HTMLElement, private sfx: Sfx) {
     this.el = document.createElement('div');
     this.el.className = 'commander';
     this.el.innerHTML = `
       <div class="cmd-badge">
-        <div class="cmd-wave"><i></i><i></i><i></i><i></i><i></i></div>
+        <div class="cmd-core"><i></i></div>
         <div>
-          <div class="cmd-name">ORION CONTROL</div>
-          <div class="cmd-role">Mission Commander · AI</div>
+          <div class="cmd-name">ACE</div>
+          <div class="cmd-role">Mission AI · Orion</div>
         </div>
+        <div class="cmd-wave"><i></i><i></i><i></i><i></i><i></i></div>
       </div>
       <div class="cmd-text"></div>
       <div class="cmd-skip"><span class="kbd">TAB</span> skip</div>`;
@@ -44,12 +48,23 @@ export class Commander {
       pick();
       speechSynthesis.addEventListener('voiceschanged', pick);
     }
+    void fetch('/audio/ace/manifest.json')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((m: { lines?: Record<string, string> } | null) => {
+        for (const [id, file] of Object.entries(m?.lines ?? {})) this.files.set(id, `/audio/ace/${file}`);
+      })
+      .catch(() => { /* no generated voice: browser speech fallback */ });
+  }
+
+  /** True when a generated voice file exists for this line. */
+  hasVoice(text: string) {
+    return this.files.has(voiceId(text));
   }
 
   setVoiceEnabled(on: boolean) {
     this.voiceEnabled = on;
     localStorage.setItem('orion.voice', on ? 'on' : 'off');
-    if (!on && 'speechSynthesis' in window) speechSynthesis.cancel();
+    if (!on) this.skipCurrent?.();
   }
 
   /** Queue lines. Resolves when these lines have finished (or were skipped). */
@@ -57,6 +72,8 @@ export class Commander {
     const lines = (Array.isArray(input) ? input : [input]).map((l) => (typeof l === 'string' ? { text: l } : l));
     if (opts.interrupt) this.clear();
     this.queue.push(...lines);
+    // start decoding the voice files right away so playback starts without a gap
+    if (this.voiceEnabled) for (const l of lines) { const f = this.files.get(voiceId(l.text)); if (f) void this.sfx.loadVoice(f); }
     const done = new Promise<void>((resolve) => this.idleResolvers.push(resolve));
     if (!this.running) void this.run();
     return done;
@@ -80,10 +97,14 @@ export class Commander {
   private async run() {
     this.running = true;
     this.el.classList.add('show');
+    this.sfx.radio(true);
+    this.sfx.duck(true);
     while (this.queue.length) {
       const line = this.queue.shift()!;
       await this.play(line);
     }
+    this.sfx.duck(false);
+    if (this.el.classList.contains('show')) this.sfx.radio(false);
     this.el.classList.remove('show', 'alert', 'speaking');
     this.running = false;
     const rs = this.idleResolvers;
@@ -93,63 +114,81 @@ export class Commander {
 
   private play(line: CommanderLine) {
     return new Promise<void>((resolve) => {
-      this.el.classList.toggle('alert', line.mood === 'alert');
-      this.el.classList.add('speaking');
-      this.textEl.textContent = '';
-      const chars = [...line.text];
-      let i = 0;
-      let speechDone = !this.voiceEnabled || !this.voice;
-      let minTimeDone = false;
-      let finished = false;
+      void (async () => {
+        this.el.classList.toggle('alert', line.mood === 'alert');
+        this.el.classList.add('speaking');
+        this.textEl.textContent = '';
+        const chars = [...line.text];
+        let i = 0;
+        let finished = false;
+        let stopVoice: (() => void) | null = null;
 
-      const typer = window.setInterval(() => {
-        i = Math.min(chars.length, i + 2);
-        this.textEl.textContent = chars.slice(0, i).join('');
-        if (i >= chars.length) window.clearInterval(typer);
-      }, 22);
+        const file = this.voiceEnabled ? this.files.get(voiceId(line.text)) : undefined;
+        let skippedEarly = false;
+        this.skipCurrent = () => (skippedEarly = true); // skip/clear while the file is still decoding
+        const buf = file ? await this.sfx.loadVoice(file) : null;
+        if (skippedEarly) { this.skipCurrent = null; this.textEl.textContent = line.text; return resolve(); }
+        const useFile = !!buf && !!this.sfx.context;
+        const useTts = !useFile && this.voiceEnabled && !!this.voice;
+        let speechDone = !useFile && !useTts;
+        let minTimeDone = false;
 
-      const finish = () => {
-        if (finished) return;
-        finished = true;
-        window.clearInterval(typer);
-        window.clearTimeout(minTimer);
-        window.clearTimeout(safety);
-        this.textEl.textContent = line.text;
-        this.el.classList.remove('speaking');
-        this.skipCurrent = null;
-        if ('speechSynthesis' in window) speechSynthesis.cancel();
-        window.setTimeout(resolve, 250);
-      };
-      const check = () => speechDone && minTimeDone && finish();
+        // Subtitles type in at roughly the speaking pace when a voice file is playing.
+        const cps = useFile ? Math.max(14, chars.length / buf!.duration) : 45;
+        const typer = window.setInterval(() => {
+          i = Math.min(chars.length, i + Math.max(1, Math.round(cps * 0.045)));
+          this.textEl.textContent = chars.slice(0, i).join('');
+          if (i >= chars.length) window.clearInterval(typer);
+        }, 45);
 
-      // Reading time: ~15 chars/s + 1.2 s, so subtitles stay up long enough without voice.
-      const minTimer = window.setTimeout(() => { minTimeDone = true; check(); }, 1200 + line.text.length * 62);
-      // Safety net in case the speech engine never fires 'end'.
-      const safety = window.setTimeout(finish, 4000 + line.text.length * 110);
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          window.clearInterval(typer);
+          window.clearTimeout(minTimer);
+          window.clearTimeout(safety);
+          this.textEl.textContent = line.text;
+          this.el.classList.remove('speaking');
+          this.skipCurrent = null;
+          stopVoice?.();
+          if (useTts && 'speechSynthesis' in window) speechSynthesis.cancel();
+          window.setTimeout(resolve, useFile ? 350 : 250);
+        };
+        const check = () => speechDone && minTimeDone && finish();
 
-      if (!speechDone) {
-        const u = new SpeechSynthesisUtterance(line.text);
-        u.voice = this.voice;
-        u.rate = line.mood === 'alert' ? 1.08 : 1.0;
-        u.pitch = 0.92;
-        u.onend = u.onerror = () => { speechDone = true; check(); };
-        speechSynthesis.cancel();
-        speechSynthesis.speak(u);
-      }
-      this.skipCurrent = finish;
+        // Reading time when there is no voice: ~15 chars/s + 1.2 s, so subtitles stay up long enough.
+        const minTimer = window.setTimeout(() => { minTimeDone = true; check(); }, useFile ? 0 : 1200 + line.text.length * 62);
+        // Safety net in case audio never reports its end.
+        const safety = window.setTimeout(finish, useFile ? (buf!.duration + 3) * 1000 : 4000 + line.text.length * 110);
+
+        if (useFile) {
+          const v = this.sfx.playVoice(buf!);
+          stopVoice = v.stop;
+          void v.done.then(() => { speechDone = true; check(); });
+        } else if (useTts) {
+          const u = new SpeechSynthesisUtterance(line.text);
+          u.voice = this.voice;
+          u.rate = line.mood === 'alert' ? 1.08 : 1.0;
+          u.pitch = 0.88;
+          u.onend = u.onerror = () => { speechDone = true; check(); };
+          speechSynthesis.cancel();
+          speechSynthesis.speak(u);
+        }
+        this.skipCurrent = finish;
+      })();
     });
   }
 }
 
-/** Prefer offline (localService) English voices; natural-sounding ones first. */
+/** Fallback voice: prefer offline British male English voices (closest to ACE's character). */
 function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   const en = voices.filter((v) => v.lang.toLowerCase().startsWith('en'));
   const local = en.filter((v) => v.localService);
   const pool = local.length ? local : en;
-  const prefs = [/guy/i, /david/i, /mark/i, /aria/i, /zira/i, /daniel/i, /google uk english male/i, /alex/i];
+  const prefs = [/ryan/i, /george/i, /google uk english male/i, /daniel/i, /thomas/i, /guy/i, /david/i, /mark/i, /alex/i];
   for (const p of prefs) {
     const v = pool.find((x) => p.test(x.name));
     if (v) return v;
   }
-  return pool[0] ?? null;
+  return pool.find((v) => v.lang.toLowerCase() === 'en-gb') ?? pool[0] ?? null;
 }

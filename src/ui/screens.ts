@@ -238,7 +238,7 @@ export function missionSelect(sfx: Sfx, onPick: (id: string) => void, onBack: ()
 export function howToPlayHtml() {
   return `
     <div class="howto">
-      <p>You are a remote mission operator. The <b>AI Mission Commander</b> guides you through each operation. Use your phone controller or this computer.</p>
+      <p>You are a remote mission operator. <b>ACE</b>, your mission AI, guides you through each operation. Use your phone controller or this computer.</p>
       <div class="howto-grid">
         <div>
           <h4>Mission 01 · Jupiter telescope</h4>
@@ -260,7 +260,7 @@ export function howToPlayHtml() {
           </table>
         </div>
       </div>
-      <p class="muted"><span class="kbd">TAB</span> skips commander lines · <span class="kbd">ESC</span> pause menu · the keyboard always works, even in phone mode.</p>
+      <p class="muted"><span class="kbd">TAB</span> skips ACE's lines · <span class="kbd">ESC</span> pause menu · the keyboard always works, even in phone mode.</p>
     </div>`;
 }
 
@@ -282,7 +282,7 @@ export function creditsHtml() {
       <h4>Data &amp; imagery</h4>
       <p class="muted">NASA, NASA/JPL-Caltech, University of Arizona (HiRISE), USGS Astrogeology Science Center, Space Science Institute, NASA Earth Observatory, NASA 3D Resources. Use of NASA data does not imply endorsement by NASA.</p>
       <h4>Built with</h4>
-      <p class="muted">three.js · Vite · TypeScript · Web Audio · Web Speech. All sound is synthesised in the browser.</p>
+      <p class="muted">three.js · Vite · TypeScript · Web Audio · Web Speech. ACE's voice and sound effects generated with ElevenLabs (AI voice, not a real person); fallback sound and the adaptive score are synthesised in the browser. All audio ships with the game and works offline.</p>
     </div>`;
 }
 

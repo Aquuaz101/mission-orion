@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { App } from '../../app/App';
 import type { Mission, MissionExit } from '../types';
 import { JupiterStage, TIMELAPSE, RJ_KM } from './JupiterStage';
-import { OBJECTIVES, HINTS, HUBBLE_SPECS, briefingLines, WRAP_UP, JWST_NOTE, type ObjectiveId } from './script';
+import { OBJECTIVES, HINTS, HUBBLE_SPECS, briefingLines, WRAP_UP, JWST_NOTE, LOCKED, type ObjectiveId } from './script';
 import { html, $, $$, wait, escapeHtml } from '../../ui/dom';
 
 type CheckKey = 'target' | 'centred' | 'size' | 'focus' | 'exposure';
@@ -33,6 +33,7 @@ export class JupiterMission implements Mission {
   private lastHintAt = 0;
   private saidAmbient = false;
   private saidRefocus = false;
+  private saidLocked = false;
   private lastField = 0;
   private finish!: (e: MissionExit) => void;
   private briefingOff?: () => void;
@@ -63,6 +64,7 @@ export class JupiterMission implements Mission {
   setPaused(p: boolean) {
     this.paused = p;
     if (this.stage) this.stage.paused = p;
+    if (p) this.app.sfx.scopeMotors(0, 0, 0);
   }
 
   dispose() {
@@ -70,6 +72,7 @@ export class JupiterMission implements Mission {
     this.briefingOff?.();
     this.disposers.forEach((d) => d());
     this.disposers = [];
+    this.app.sfx.stopLoops();
     this.hud?.remove();
     this.hud = null;
     this.app.space.showModel(null);
@@ -137,11 +140,13 @@ export class JupiterMission implements Mission {
     app.space.setShot('depart', 0.9);
     const lines = ['SLEWING TO TARGET · JUPITER', 'FINE GUIDANCE SENSORS · GUIDE STARS ACQUIRED', 'WIDE FIELD CAMERA 3 · UVIS CHANNEL READY', 'OPENING SHUTTER'];
     const box = $(boot, '.boot-lines');
+    app.sfx.riser(1.8);
     for (const l of lines) {
       box.appendChild(html(`<div class="fade-up">› ${l}</div>`));
       app.sfx.blip();
       await wait(380);
     }
+    app.sfx.shutter();
     await wait(250);
     app.space.showModel(null);
 
@@ -149,6 +154,7 @@ export class JupiterMission implements Mission {
     this.stage.resize(window.innerWidth, window.innerHeight);
     app.engine.setStage(this.stage);
     app.sfx.setAmbience('space');
+    app.sfx.setMusic('jupiter');
     app.input.pointerEnabled = true;
     this.lastField = this.stage.fieldH;
 
@@ -239,7 +245,8 @@ export class JupiterMission implements Mission {
     const r = this.evaluate();
     this.app.sfx.shutter();
     this.flash();
-    const url = await s.capture();
+    const url = await s.capture(); // grabbed before the flash effect is drawn
+    s.flash();
 
     if (!r.ready) {
       this.app.sfx.error();
@@ -283,6 +290,9 @@ export class JupiterMission implements Mission {
     if (!s || !this.hud || this.paused) return;
     const { input } = this.app;
     const h = window.innerHeight;
+    // telescope motors follow the actual optics motion
+    this.app.sfx.scopeMotors(Math.min(1, Math.abs(s.zoomRate) / 1.4), Math.min(1, s.slewRate * 2.5), Math.min(1, Math.abs(s.focusRate) * 5));
+    this.hud.style.setProperty('--zoomv', Math.min(1, Math.abs(s.zoomRate) / 1.4).toFixed(3));
 
     // Pointing: sticks (WASD / arrows / phone pad) slew at a rate proportional to the field.
     const a = input.stickL(), b = input.stickR();
@@ -314,8 +324,12 @@ export class JupiterMission implements Mission {
 
     const r = this.evaluate();
     if (r.ready && !this.wasReady) {
-      this.app.sfx.blip();
+      this.app.sfx.lockOn();
       this.app.link.buzz(25);
+      this.hud.classList.remove('lock-flash');
+      void this.hud.offsetWidth;
+      this.hud.classList.add('lock-flash');
+      if (!this.saidLocked && !this.app.commander.busy) { this.saidLocked = true; void this.app.commander.say(LOCKED); }
     }
     this.wasReady = r.ready;
     this.paintChecks(r);
