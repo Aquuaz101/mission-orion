@@ -78,3 +78,6 @@
 
 .ihud .loc-card { bottom: auto; top: 26vh; left: 9vw; }
 
+
+/* mission-exit pull-out: the helmet HUD gives way to the satellite tag */
+.ihud.sat .ih-tl, .ihud.sat .ih-tr, .ihud.sat .ih-obj, .ihud.sat .ih-cross, .ihud.sat .ih-keys, .ihud.sat .ih-alert, .ihud.sat .progress-pill, .ihud.sat .loc-card { opacity: 0 !important; transition: opacity 0.4s; }

@@ -33,10 +33,10 @@ export const briefingLines = (mode: ControlMode) => [
 ];
 
 export const L = {
-  boot: 'Helmet camera online. Suit pressure four point three p s i. Pure oxygen. We are on the night side of the planet, so helmet lights are on.',
-  hatch: 'Opening the hatch. Take a moment, Operator. Very few people ever see this.',
+  boot: 'Helmet camera online. The astronaut is outside the Quest airlock, suit at four point three p s i of pure oxygen. We are on the night side of the planet, so helmet lights are on.',
+  view: 'Take a moment, Operator. Very few people ever see this.',
   orbitFact: 'Those are city lights, four hundred and twenty kilometres below. The station is moving at about twenty-eight thousand kilometres an hour.',
-  q1: 'First call. What does the astronaut do before leaving the airlock?',
+  q1: 'First call. Before the astronaut lets go of the airlock, what comes first?',
   tetherOk: 'Correct. Safety tether clipped. On a spacewalk, you are always attached to the station.',
   q2: 'The worksite is out on the port truss, forty metres away. How should the astronaut get there?',
   armOk: 'Canadarm2 it is. Boots into the foot restraint on the end of the arm. The ground team will fly you there.',
@@ -55,13 +55,13 @@ export const L = {
   connDone: 'All three connectors mated. Power to the new battery.',
   powerUp: 'Telemetry confirms the new battery is online. Green light on unit 3B.',
   debris1: { text: 'Operator, stand by. Mission Control has a debris alert. A fragment cloud is crossing our orbit.', mood: 'alert' as const },
-  debris2: { text: 'We need the astronaut inside, now. Make the call.', mood: 'alert' as const },
-  returnOk: { text: 'Good call. Tools stowed. Head for the airlock.', mood: 'alert' as const },
-  q6: { text: 'Fragments ahead. Hold behind the truss, or keep moving?', mood: 'alert' as const },
-  shieldOk: { text: 'Hold. Let the truss take it.', mood: 'alert' as const },
-  impact: { text: 'Impact on the array. Keep moving, Operator.', mood: 'alert' as const },
-  hatchClose: 'Hatch closed. Repressurising. Welcome back inside.',
-  wrap1: 'Spacewalk complete. The new battery is online and the crew is safe.',
+  debris2: { text: 'The cloud is coming from behind the station, and the airlock is forty metres away. Make the call.', mood: 'alert' as const },
+  coverOk: { text: 'Good call. Tools stowed. Stay on this side of the truss and let the station take the hits.', mood: 'alert' as const },
+  q6: { text: 'Fragments crossing now. How does the astronaut hold?', mood: 'alert' as const },
+  shieldOk: { text: 'Both hands on the rail. Visor down. Let the truss take it.', mood: 'alert' as const },
+  impact: { text: 'Strike on the solar array. Hold on. You are shielded.', mood: 'alert' as const },
+  allClear: 'The cloud has passed. Suit pressure steady at four point three. The astronaut is safe, Operator.',
+  wrap1: 'Battery 3B is online, and the astronaut rode out the storm. Spacewalk objectives complete.',
   wrap2: 'In November 2021, real debris from an anti-satellite test sent the station’s crew to shelter in their spacecraft. Every piece of debris is a danger to everyone in orbit.',
   wrong: {
     push: 'Never leave without a tether. If you drift away, there is nothing to push against.',
@@ -71,8 +71,9 @@ export const L = {
     unbolt: 'Unbolting first would leave live power connectors hanging free. Isolate the power first.',
     rush: 'Unsafe. The battery is still connected to the power grid.',
     finish: 'There is no time for that. Debris travels faster than a bullet.',
-    shelter: 'A battery box is no shelter. The airlock is.',
-    keepGoing: 'Into the fragment stream? Stay behind the truss until it passes.',
+    airlock: 'Forty metres of open truss with the cloud arriving? The station itself is the best shield. Get behind it.',
+    look: 'At eight kilometres a second there is nothing to dodge. Visor down, hands on the rail.',
+    letGo: 'Let go of the station in a debris storm? Stay attached and stay behind the truss.',
   },
 };
 
@@ -80,7 +81,7 @@ export interface Choice { label: string; sub?: string; ok: boolean; why?: string
 
 export const CHOICES = {
   q1: [
-    { label: 'Clip the safety tether', sub: 'Attach to the airlock rail', ok: true },
+    { label: 'Clip the safety tether', sub: 'Attach to the ring by the hatch', ok: true },
     { label: 'Push off toward the worksite', sub: 'Save time', ok: false, why: L.wrong.push },
     { label: 'Fire the SAFER jet pack', sub: 'Test the thrusters', ok: false, why: L.wrong.safer },
   ],
@@ -101,12 +102,13 @@ export const CHOICES = {
   ],
   q5: [
     { label: 'Finish the cable inspection', sub: '2 minutes of work left', ok: false, why: L.wrong.finish },
-    { label: 'Stow tools, return to the airlock', sub: 'Abort the spacewalk', ok: true },
-    { label: 'Shelter behind the battery box', sub: 'Stay put', ok: false, why: L.wrong.shelter },
+    { label: 'Take cover behind the truss', sub: 'Put the station between you and the cloud', ok: true },
+    { label: 'Race back to the airlock', sub: '40 m of open truss', ok: false, why: L.wrong.airlock },
   ],
   q6: [
-    { label: 'Hold behind the truss', sub: 'Let it pass', ok: true },
-    { label: 'Keep moving', sub: 'Race the cloud', ok: false, why: L.wrong.keepGoing },
+    { label: 'Watch the fragments', sub: 'Track them and dodge', ok: false, why: L.wrong.look },
+    { label: 'Both hands on the rail, visor down', sub: 'Face the truss', ok: true },
+    { label: 'Let go and drift clear', sub: 'Get away from the station', ok: false, why: L.wrong.letGo },
   ],
 } satisfies Record<string, Choice[]>;
 

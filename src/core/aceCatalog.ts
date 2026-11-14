@@ -72,15 +72,15 @@ export function aceCatalog(): CatalogLine[] {
   const I = iss.L;
   add(1, 'iss', 'calm, welcoming', 'calm', ...iss.briefingLines('device'), iss.briefingLines('phone')[2]);
   add(1, 'iss', 'calm, focused', 'calm', I.boot);
-  add(1, 'iss', 'quiet awe', 'warm', I.hatch, I.orbitFact);
+  add(1, 'iss', 'quiet awe', 'warm', I.view, I.orbitFact);
   add(1, 'iss', 'calm', 'calm', I.q1, I.q2, I.q3, I.q4, I.arrive, I.bolts, I.connIntro, I.ride, I.sunrise1);
   add(1, 'iss', 'quiet awe', 'warm', I.sunrise2);
   add(1, 'iss', 'approving, warm', 'warm', I.tetherOk, I.armOk, I.footOk, I.seqOk, I.boltsDone, I.connDone, I.powerUp);
   add(1, 'iss', 'calm, helpful', 'calm', I.connWrong);
   add(1, 'iss', 'serious, alert', 'tense', I.debris1);
   add(1, 'iss', 'urgent, controlled', 'urgent', I.debris2, I.q6, I.impact);
-  add(1, 'iss', 'focused, tense', 'tense', I.returnOk, I.shieldOk);
-  add(1, 'iss', 'relieved, exhales', 'warm', I.hatchClose);
+  add(1, 'iss', 'focused, tense', 'tense', I.coverOk, I.shieldOk);
+  add(1, 'iss', 'relieved, exhales', 'warm', I.allClear);
   add(1, 'iss', 'warm, reflective', 'calm', I.wrap1, I.wrap2);
   add(2, 'iss', 'firm, dry', 'tense', ...Object.values(I.wrong).map((t) => ({ text: t, mood: 'alert' as const })));
 

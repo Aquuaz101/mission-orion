@@ -11,8 +11,10 @@ import type { CommanderLine } from '../../core/Commander';
 
 /**
  * Mission 03 · Orbital Maintenance. The player is the spacewalk officer in Mission Control, guiding an
- * astronaut through their helmet camera: decisions (the astronaut acts them out), two minigames
- * (bolt torque, keyed connectors), then a dramatised debris alert based on the real November 2021 event.
+ * astronaut who is already outside the station, through their helmet camera: every step is a call the
+ * astronaut acts out (tether, Canadarm2 ride into an orbital sunrise, the battery swap), then a dramatised
+ * debris storm (based on the real November 2021 event) that the astronaut rides out on the truss. The
+ * mission ends with a pull-out from the ISS to orbit.
  */
 export class ISSMission implements Mission {
   private stage: ISSStage | null = null;
@@ -25,7 +27,6 @@ export class ISSMission implements Mission {
   private evaPausedMs = 0;
   private pausedAt = 0;
   private decisions = { total: 0, firstTry: 0 };
-  private torqueScores: number[] = [];
   private stress = 0;
   private heart = 72;
   private objective = '';
@@ -91,7 +92,8 @@ export class ISSMission implements Mission {
     await this.egress(); this.alive();
     await this.translate(); this.alive();
     await this.repair(); this.alive();
-    await this.debrisEscape(); this.alive();
+    await this.debrisStorm(); this.alive();
+    await this.exitCut(); this.alive();
     this.showReport();
   }
 
@@ -113,8 +115,8 @@ export class ISSMission implements Mission {
           <div class="brief-specs mono">${specs}</div>
           <h4 class="mono">Objectives</h4>
           <ol class="brief-objs">
-            <li><span class="mono">1</span>Exit the airlock safely</li>
-            <li><span class="mono">2</span>Reach the P4 battery bank</li>
+            <li><span class="mono">1</span>Secure the astronaut at the airlock</li>
+            <li><span class="mono">2</span>Reach the P3 battery bank</li>
             <li><span class="mono">3</span>Replace lithium-ion battery 3B</li>
           </ol>
           <div class="brief-actions">
@@ -158,7 +160,7 @@ export class ISSMission implements Mission {
     st.render(app.engine.renderer); // compile shaders while the screen is black
     await line('SUIT PRESSURE · 4.3 PSI · 100% O₂');
     await line('HELMET LIGHTS · ON · ORBITAL NIGHT');
-    await line('CREWLOCK DEPRESSURISED · 0.0 PSI', 600);
+    await line('EV1 OUTSIDE · QUEST AIRLOCK · HATCH SHUT', 600);
     app.engine.setStage(st);
     app.input.pointerEnabled = true;
     app.input.lookMode = 'drag';
@@ -175,36 +177,30 @@ export class ISSMission implements Mission {
     setTimeout(() => cover.remove(), 1200);
   }
 
-  // ─────────────────────────────────────────── hatch (night) → Earth with city lights → tether
+  // ─────────────────────────────────────────── already outside Quest at night: Earth with city lights → tether
   private async egress() {
     const st = this.stage!, { sfx } = this.app;
-    this.setObjective('Exit the airlock');
-    await this.say(L.boot);
-    this.alive();
-    // reach for the hatch handle; the hand stays on it as the hatch swings open
-    await st.R.anchor(() => st.hatchHandle(), 0.92, 0.9);
-    sfx.servo(1.2);
-    await this.sleep(400);
-    void this.say(L.hatch);
+    this.setObjective('Secure the tether');
     sfx.setMusic('jupiter');
     sfx.setMusicFocus(1);
-    sfx.riser(3.2);
-    await st.tweenObject(st.hatch, null, new THREE.Euler(0, 0, 0.9), 1.6);
-    void st.R.rest(0.9);
-    await st.tweenObject(st.hatch, null, new THREE.Euler(0, 0, 1.75), 2.2);
-    sfx.impact(0.5);
-    // float up to the threshold; first look out at the night side of Earth
-    await st.move([st.air(-0.5, 0.0, 0), st.air(0.32, 0.05, 0.05)], [st.air(6, -1.8, 0.4), st.air(8, -3.2, 1.2)], 4.8);
+    // a slow drift off the hatch, the night side of Earth turning beneath the station
+    void st.move([st.air(0.66, 0.02, 0.16), st.air(0.6, 0.05, 0.1)], [st.air(8, -3.6, 1.8), st.air(7, -2.6, 0.2)], 9, 'inout');
+    await this.say(L.boot);
     this.alive();
+    sfx.riser(3.2);
+    void this.say(L.view);
     this.locationCard(['INTERNATIONAL SPACE STATION', 'Orbital night · 420 km above the Gulf of Mexico', `${Math.round(st.earthSpeedKmh).toLocaleString()} km/h · one orbit every 92 min`]);
+    await this.sleep(4200);
     await this.say(L.orbitFact);
     this.alive();
 
-    // Decision 1: tether — the left hand clips onto the ring on the hatch frame
+    // Decision 1: tether. The left hand clips onto the ring on the hatch frame
     await this.choose(L.q1, CHOICES.q1);
+    await st.move([st.air(0.4, 0.1, 0.12)], [st.air(1.2, 0.5, 2.6)], 1.2);
     const ring = st.air(0.08, 0.75, 0.55);
     await st.L.anchor(() => ring, 0.95, 0.7);
     sfx.clip();
+    st.kick(0.12);
     st.tetherAnchor = ring;
     this.setStatus('tether', 'SECURED');
     await this.sleep(350);
@@ -362,8 +358,8 @@ export class ISSMission implements Mission {
     await this.say(L.connDone);
   }
 
-  // ─────────────────────────────────────────── debris alert (dramatised, based on Nov 2021)
-  private async debrisEscape() {
+  // ─────────────────────────────────────────── debris storm (dramatised, based on Nov 2021): ride it out on the truss
+  private async debrisStorm() {
     const st = this.stage!, { sfx } = this.app;
     await this.sleep(1200);
     sfx.silence(900);
@@ -375,82 +371,106 @@ export class ISSMission implements Mission {
     st.alert = 1;
     this.hud!.classList.add('alert');
     this.setStatus('mmod', 'DEBRIS ALERT');
-    this.setObjective('Debris alert · return to the airlock');
+    this.setObjective('Debris storm · keep the astronaut alive');
     this.stressTo(0.55);
     st.kick(0.3, 0.1);
     this.app.link.buzz([200, 100, 200, 100, 200]);
+    st.debris = 0.15;
     await this.say([L.debris1, L.debris2], true);
     this.alive();
-    st.debris = 0.25;
     st.sunTo(14, 60);
-    await this.choose('Debris alert: your call', CHOICES.q5, { timer: 9 });
-    void this.say(L.returnOk, true);
+    await this.choose('Debris storm: your call', CHOICES.q5, { timer: 10 });
+    void this.say(L.coverOk, true);
     sfx.setMusic('rescue', 0.6);
     this.stressTo(0.75);
-    st.debris = 0.6;
-    // back along the rails, fast
-    await st.move([st.at(0.4, -0.05, 1.3)], [st.at(2.5, -0.2, 0.3)], 0.8);
-    await this.climb([0.8, 1.6, 2.4], true);
+    st.debris = 0.45;
+    // tuck in close against the truss face, facing it, a hand on each rail; a second tether clip
+    await st.move([st.at(0.4, -0.6, 1.3)], [st.at(0.4, -0.66, -0.4)], 1.1);
+    sfx.clip();
+    await Promise.all([st.L.anchor(() => st.at(0, -0.72, 0.1), 0.98, 0.35), st.R.anchor(() => st.at(0.8, -0.72, 0.1), 0.98, 0.35)]);
+    sfx.connector(false);
+    st.kick(0.2);
     this.alive();
-    // fragments crossing: hold on behind the truss
+    // the stream arrives
     st.debris = 1;
     st.shake = 0.6;
-    const choice = this.choose('Fragments crossing ahead', CHOICES.q6, { timer: 6 });
+    const choice = this.choose('Fragments crossing', CHOICES.q6, { timer: 7 });
     void this.say(L.q6, true);
     await choice;
+    this.alive();
     void this.say(L.shieldOk, true);
-    await st.L.anchor(() => st.at(2.4, -0.72, 0.1), 0.98, 0.3);
-    await st.R.anchor(() => st.at(1.6, -0.72, 0.1), 0.98, 0.3);
+    // helmet down: look along the rail, away from the stream
+    await st.move([st.at(0.4, -0.64, 1.24)], [st.at(0.4, -1.7, 0.1)], 0.8);
     st.shake = 0.9;
-    for (const [d, at] of [[400, st.at(-0.5, 1.6, 0.4)], [900, new THREE.Vector3(-3, 6, -32)], [700, st.at(3.5, -1.0, 0.3)]] as const) {
+    this.stressTo(0.95);
+    const hits: [number, THREE.Vector3][] = [[500, new THREE.Vector3(-3, 6, -32)], [900, st.at(0.9, 1.35, -0.3)], [600, st.at(-2.2, 0.6, 0.1)], [1100, new THREE.Vector3(-6, 9, -40)], [700, st.at(1.8, -1.6, 0.2)]];
+    for (const [d, at] of hits) {
       await this.sleep(d);
-      st.burst(at, 50, 4);
-      const close = at.distanceTo(st.body.position) < 12;
-      st.kick(close ? 0.9 : 0.4, 0.15);
+      st.burst(at, 60, 4);
+      const close = at.distanceTo(st.body.position) < 6;
+      st.kick(close ? 0.9 : 0.4, close ? 0.2 : 0.08);
       sfx.impact(close ? 1 : 0.6);
       sfx.setMuffle(0.4);
       setTimeout(() => sfx.setMuffle(0), 700);
       this.app.link.buzz(120);
     }
     void this.say(L.impact, true);
-    st.debris = 0.5;
-    this.stressTo(0.9);
-    // the arm is waiting: back into the foot restraint and a fast ride home
-    st.showRig(true);
-    st.rig.position.set(0, 0, 0);
-    await st.move([st.at(3.4, -0.15, 1.35)], [new THREE.Vector3(-8, -2, -14)], 0.9);
-    void st.L.anchor(() => st.rigHandhold(), 0.95, 0.4);
-    void st.R.rest(0.5);
-    sfx.servo(1.5);
-    await st.move(
-      [new THREE.Vector3(-6.4, 0.6, -21.0), new THREE.Vector3(-7.2, -4.4, -16.4), new THREE.Vector3(-5.8, -10.4, -7.6), new THREE.Vector3(3.2, -11.2, 4.2), new THREE.Vector3(5.6, -8.4, 10.6), st.air(1.35, -0.45, 0.25)],
-      [new THREE.Vector3(-8, -6, -10), new THREE.Vector3(-4, -12, 0), new THREE.Vector3(6, -12, 10), new THREE.Vector3(8, -8, 14), st.air(0, 0, 0), st.air(-2, 0, 0)],
-      16, 'inout');
+    await this.sleep(2600);
+    st.debris = 0.4;
+    st.shake = 0.4;
+    await this.sleep(2400);
+    st.debris = 0.1;
+    st.shake = 0.1;
+    await this.sleep(1800);
     this.alive();
-    st.showRig(false);
-    void st.L.rest(0.4);
-    // inside: turn around, pull the hatch shut
-    await st.move([st.air(0.3, 0, 0), st.air(-1.3, 0, 0)], [st.air(-3, 0, 0), st.air(3, -0.2, 0)], 2.6);
+    // the cloud has passed: still outside, still holding the rail; lift the head and look out at the day side
     st.debris = 0;
     st.shake = 0;
-    st.tetherAnchor = null;
-    await st.R.anchor(() => st.hatchHandle(), 0.92, 0.6);
-    sfx.servo(1.0);
-    await st.tweenObject(st.hatch, null, new THREE.Euler(0, 0, 0), 2.2);
-    sfx.clank();
-    sfx.impact(0.8);
-    st.kick(0.4);
-    void st.R.rest(0.6);
-    sfx.setMusic('none');
     st.alert = 0;
     this.hud!.classList.remove('alert');
     this.setStatus('mmod', 'CLEAR');
-    this.setStatus('tether', 'INSIDE');
-    this.stressTo(0.2);
-    await this.sleep(1400);
+    this.stressTo(0.25);
+    sfx.setMusic('none');
+    void st.R.rest(0.8);
+    await st.move([st.at(0.4, 0.1, 1.6)], [st.at(0.6, -3.5, 18)], 3.2);
     sfx.setMusic('triumph');
-    this.setObjective('Spacewalk complete');
-    await this.say([L.hatchClose, L.wrap1, L.wrap2]);
+    this.setObjective('Storm passed · battery 3B online');
+    await this.say([L.allClear, L.wrap1]);
+  }
+
+  // ─────────────────────────────────────────── exit: cut from the helmet to the station from outside, then orbit
+  private async exitCut() {
+    const st = this.stage!, hud = this.hud!, { sfx } = this.app;
+    this.app.input.pointerEnabled = false;
+    sfx.suit(false, 0);
+    hud.classList.add('sat');
+    const sat = html(`<div class="sat-ui mono"><div class="sat-flash"></div><div class="sat-tag"><i></i><span class="sat-name">EV1 · P3 truss</span></div><div class="sat-info"><b>Mission complete</b><span class="sat-alt"></span></div></div>`);
+    hud.appendChild(sat);
+    const tag = $(sat, '.sat-tag');
+    let far = false;
+    const off = this.app.engine.onTick(() => {
+      const s = st.toScreen(far ? st.stationCentre : st.worksite);
+      tag.style.visibility = s.behind ? 'hidden' : 'visible';
+      tag.style.transform = `translate(${(s.x * window.innerWidth).toFixed(1)}px, ${(s.y * window.innerHeight).toFixed(1)}px)`;
+    });
+    this.disposers.push(off);
+    const lines = this.say(L.wrap2);
+    await st.orbitExit((level, d) => {
+      const gp = st.groundPoint();
+      const where = `${Math.abs(gp.lat).toFixed(1)}° ${gp.lat >= 0 ? 'N' : 'S'} ${Math.abs(gp.lon).toFixed(1)}° ${gp.lon >= 0 ? 'E' : 'W'}`;
+      $(sat, '.sat-alt').textContent = `International Space Station · ${where} · altitude 420 km · camera ${d >= 1000 ? (d / 1000).toFixed(d >= 10000 ? 0 : 1) + ' km' : d + ' m'} out`;
+      far = level >= 1;
+      $(sat, '.sat-name').textContent = far ? 'International Space Station' : 'EV1 · P3 truss';
+      sfx.whoosh();
+      this.app.link.buzz(30);
+      const fl = $(sat, '.sat-flash');
+      fl.classList.remove('go');
+      void fl.offsetWidth;
+      fl.classList.add('go');
+      sat.classList.toggle('far', level >= 0);
+    });
+    await lines;
+    await this.sleep(1500);
   }
 
   // ─────────────────────────────────────────── option system
@@ -635,7 +655,6 @@ export class ISSMission implements Mission {
     app.sfx.suit(false, 0);
     app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 03 complete', subtitle: 'Spacewalk report on the main screen' });
     const mins = (performance.now() - this.evaStart - this.evaPausedMs) / 60000;
-    const acc = this.torqueScores.length ? Math.round((this.torqueScores.filter((s) => s > 0).length / this.torqueScores.length) * 100) : 100;
     const facts = FACTS.map(([k, v], i) => `<figure class="fade-up iss-fact" style="animation-delay:${0.15 + i * 0.1}s"><figcaption><span class="mono">${k}</span><p>${escapeHtml(v)}</p></figcaption></figure>`).join('');
     const el = html(`
       <section class="report">
@@ -645,12 +664,12 @@ export class ISSMission implements Mission {
           <div class="report-stats mono">
             <div><span>Battery 3B</span><b>Online</b></div>
             <div><span>Calls right first time</span><b>${this.decisions.firstTry} / ${this.decisions.total}</b></div>
-            <div><span>Bolts torqued in band</span><b>${acc}%</b></div>
+            <div><span>Debris storm</span><b>Survived</b></div>
             <div><span>Time outside (game)</span><b>${mins.toFixed(1)} min</b></div>
           </div>
           <div class="report-figs iss-facts">${facts}</div>
           <div class="report-row">
-            <div class="jwst panel"><div class="eyebrow" style="color:var(--c-orange)">Dramatised scenario</div><p>The battery failure and the debris alert during this spacewalk are dramatised. They are based on real events: spacewalkers replaced the station's batteries with lithium-ion units between 2017 and 2021, and on 15 November 2021 debris from an anti-satellite test sent the ISS crew to shelter in their spacecraft.</p></div>
+            <div class="jwst panel"><div class="eyebrow" style="color:var(--c-orange)">Dramatised scenario</div><p>The battery failure and the debris storm during this spacewalk are dramatised. They are based on real events: spacewalkers replaced the station's batteries with lithium-ion units between 2017 and 2021, and on 15 November 2021 debris from an anti-satellite test sent the ISS crew to shelter in their spacecraft. In reality, a spacewalk would be cancelled or postponed long before a known debris cloud arrived.</p></div>
           </div>
           <p class="report-src mono">Earth: NASA Blue Marble Next Generation (MODIS, July 2004) + Black Marble · facts: nasa.gov/international-space-station · station hardware modelled for this game</p>
           <div class="report-actions">

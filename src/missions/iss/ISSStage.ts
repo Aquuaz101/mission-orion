@@ -182,6 +182,11 @@ export class ISSStage implements Stage {
   dark = 0;
   private flashT = 0;
   private tickers = new Set<(dt: number) => void>();
+  /** Debris stream source direction (the cloud arrives from behind the station, the wake side). */
+  readonly debrisFrom = new THREE.Vector3(1, 0, 0);
+  /** External (third-person) camera for the mission-exit pull-out. */
+  private ext: { pos: THREE.Vector3; look: THREE.Vector3 } | null = null;
+  private glint: THREE.Sprite;
 
   constructor(assets: Assets, renderer: THREE.WebGLRenderer, quality: Quality, stationGltf: GLTF | null) {
     this.preset = PRESETS[quality];
@@ -333,6 +338,11 @@ export class ISSStage implements Stage {
     // sunlit motes drifting around the helmet (they only show when looking toward the Sun)
     this.dust = this.buildDust();
     this.scene.add(this.dust);
+    // a sunlit glint that keeps the station visible as a point of light when the camera is kilometres away
+    this.glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex([[0, 'rgba(255,255,255,1)'], [0.12, 'rgba(255,250,235,0.85)'], [0.4, 'rgba(255,235,200,0.12)'], [1, 'rgba(255,220,180,0)']]), color: new THREE.Color(4, 3.8, 3.4), blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, opacity: 0 }));
+    this.glint.position.set(0, -2, 0);
+    this.glint.visible = false;
+    this.scene.add(this.glint);
 
     // ── occlusion buffer for sun shafts: bright Sun disc, the station drawn black over it
     this.occRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
@@ -356,9 +366,9 @@ export class ISSStage implements Stage {
     this.visor.uniforms.tDirt.value = visorDirt();
     this.composer.addPass(this.visor);
 
-    // start inside the crewlock, looking out at the closed hatch
-    this.body.position.copy(this.air(-1.55, 0.05, 0));
-    this.bodyLook.copy(this.air(5, -0.3, 0));
+    // start outside, floating just off Quest's closed hatch, looking down at the night side of Earth
+    this.body.position.copy(this.air(0.62, 0.05, 0.12));
+    this.bodyLook.copy(this.air(8, -3.4, 1.4));
     this.updateSun(0);
   }
 
@@ -519,6 +529,85 @@ export class ISSStage implements Stage {
       this.tickers.add(step);
     });
   }
+  /** Run a per-frame function for `dur` seconds (pause-aware: driven by update). */
+  animate(dur: number, f: (k: number) => void): Promise<void> {
+    return new Promise((resolve) => {
+      let t = 0;
+      const step = (dt: number) => {
+        t = Math.min(1, t + dt / dur);
+        f(t);
+        if (t >= 1) { this.tickers.delete(step); resolve(); }
+      };
+      this.tickers.add(step);
+    });
+  }
+  /** Screen position (0..1, y down) of a world point. */
+  toScreen(p: Vec) {
+    const v = p.clone().project(this.camera);
+    return { x: v.x * 0.5 + 0.5, y: -v.y * 0.5 + 0.5, behind: v.z > 1 };
+  }
+  /** Where the label tracks: the worksite while close, the station itself once far away. */
+  get stationCentre() { return new THREE.Vector3(0, -2, 0); }
+  get worksite() { return SITE.clone().add(new THREE.Vector3(-1.7, 0, 0)); }
+
+  /**
+   * Mission-exit pull-out (like a character switch): the helmet view cuts to a camera outside the station,
+   * then jumps back in stepped cuts until the ISS is a point of light above the curve of the Earth.
+   * The astronaut is never shown: the first cut is already far enough that a person would be a speck.
+   */
+  async orbitExit(onStep?: (level: number, distance: number) => void) {
+    const dir = new THREE.Vector3(-0.25, 0.3, 0.92).normalize(); // starboard, a little sunward: the station side-lit over the day-side limb
+    const side = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
+    // [distance (m), target blend worksite → station centre, sideways framing offset (fraction of distance)]
+    const levels: [number, number, number][] = [[42, 0, 0.1], [230, 0.7, 0.14], [1500, 1, 0.12], [26000, 1, 0.1]];
+    const target = (b: number) => this.worksite.lerp(this.stationCentre, b);
+    const place = (d: number, b: number, s: number) => {
+      const t = target(b);
+      return { pos: t.clone().addScaledVector(dir, d).addScaledVector(side, -s * d * 0.3), look: t.clone().addScaledVector(side, s * d * 0.25) };
+    };
+    // leave the helmet: hands, rig, tether, visor and lamps go; the camera now lives in world space
+    this.travel = null;
+    this.L.h.root.visible = this.R.h.root.visible = false;
+    this.rig.visible = false;
+    this.tetherAnchor = null;
+    this.dust.visible = false;
+    this.visor.enabled = false;
+    this.scene.attach(this.camera);
+    this.debris = 0;
+    this.shake = 0;
+    let prev = levels[0][0] * 0.55;
+    for (let i = 0; i < levels.length; i++) {
+      const [d, b, s] = levels[i];
+      onStep?.(i, d);
+      this.camera.near = Math.max(0.05, d * 0.004);
+      this.camera.far = d * 2.2 + 900;
+      this.camera.updateProjectionMatrix();
+      this.glint.visible = d > 900;
+      const from = prev + (d - prev) * 0.8; // jump-cut most of the way, then settle
+      const p0 = place(from, b, s);
+      this.ext = { pos: p0.pos.clone(), look: p0.look.clone() };
+      const p1 = place(d, b, s);
+      await this.animate(0.75, (k) => {
+        const e = 1 - Math.pow(1 - k, 3);
+        this.ext!.pos.lerpVectors(p0.pos, p1.pos, e);
+        this.ext!.look.lerpVectors(p0.look, p1.look, e);
+      });
+      await this.animate(i === levels.length - 1 ? 1.0 : i === 0 ? 1.6 : 0.6, (k) => {
+        const p = place(d * (1 + 0.012 * k), b, s);
+        this.ext!.pos.copy(p.pos);
+        this.ext!.look.copy(p.look);
+      });
+      prev = d * 1.012;
+    }
+    // slow drift while the closing lines play
+    const [d, b, s] = levels[levels.length - 1];
+    void this.animate(600, (k) => {
+      const p = place(d * 1.012 * (1 + 0.6 * k), b, s);
+      this.ext!.pos.copy(p.pos);
+      this.ext!.look.copy(p.look);
+    });
+  }
+
   get earthSpeedKmh() { return ORBIT_RATE * (R_EARTH + ALT) * 3600; }
   groundPoint() {
     const p = new THREE.Vector3(0, 1, 0).applyQuaternion(this.earth.quaternion.clone().invert());
@@ -564,6 +653,9 @@ export class ISSStage implements Stage {
     this.sun.target.position.copy(this.body.position);
     this.sun.position.copy(this.body.position).addScaledVector(this.sunDir, 45);
     this.skyCam.quaternion.copy(this.camera.getWorldQuaternion(new THREE.Quaternion()));
+    this.skyCam.position.copy(this.camera.getWorldPosition(new THREE.Vector3())).multiplyScalar(0.001);
+    this.earthMat.uniforms.camPos.value.copy(this.skyCam.position);
+    this.atmo.uniforms.camPos.value.copy(this.skyCam.position);
 
     // effects driven by where the Sun sits on screen
     const sp = this.camera.position.clone();
@@ -575,7 +667,8 @@ export class ISSStage implements Stage {
     this.raysOn = this.preset.rays && shafts > 0.01;
     const ru = this.raysPass.uniforms;
     ru.sun.value.copy(sunUv);
-    ru.rays.value = this.raysOn ? shafts * 0.9 : 0;
+    const fresh = 1 - THREE.MathUtils.smoothstep(this.sunElev, -16, 4); // low Sun: longest, richest shafts
+    ru.rays.value = this.raysOn ? shafts * (0.85 + 0.45 * fresh) : 0;
     ru.flare.value = this.raysOn ? shafts : 0;
     (ru.tint.value as THREE.Color).copy(this.sunColor());
     const dm = this.dust.material as THREE.ShaderMaterial;
@@ -609,12 +702,14 @@ export class ISSStage implements Stage {
     this.sunDir.set(-Math.cos(e), Math.sin(e), 0.16).normalize();
     this.earthMat.uniforms.sunDir.value.copy(this.sunDir);
     this.earthMat.uniforms.sunLocal.value.copy(this.sunDir).applyQuaternion(this.earth.quaternion.clone().invert());
-    this.earthMat.uniforms.camPos.value.set(0, 0, 0);
     this.atmo.uniforms.sunDir.value.copy(this.sunDir);
-    this.atmo.uniforms.camPos.value.set(0, 0, 0);
     this.sunSprite.position.copy(this.sunDir).multiplyScalar(20000);
     const col = this.sunColor();
     (this.sunSprite.material as THREE.SpriteMaterial).color.setRGB(30 * col.r, 28 * col.g, 25 * col.b);
+    this.earthMat.uniforms.sunColor.value.copy(col);
+    // refraction through the limb squashes the rising Sun into a wide, deep-orange ellipse
+    const limb = 1 - THREE.MathUtils.smoothstep(this.sunElev, -20.4, -16.5);
+    this.sunSprite.scale.set(2400 * (1 + 0.55 * limb), 2400 * (1 - 0.35 * limb), 1);
     const up = this.sunUp, day = this.dayFactor;
     this.sun.intensity = 3.0 * up;
     this.sun.color.copy(col);
@@ -622,11 +717,23 @@ export class ISSStage implements Stage {
     this.hemi.groundColor.setRGB(0.012 + 0.21 * day, 0.016 + 0.35 * day, 0.03 + 0.58 * day);
     this.hemi.color.setRGB(0.012, 0.014, 0.022);
     this.scene.environmentIntensity = 0.12 + 0.88 * day;
-    for (const l of this.lamps) l.intensity = 4.5 * (1 - up);
-    this.airlockLight.intensity = 0.9;
+    for (const l of this.lamps) l.intensity = this.ext ? 0 : 4.5 * (1 - up);
+    this.airlockLight.intensity = 0; // hatch is shut behind us: no interior light spill
   }
 
   private updateCamera(dt: number) {
+    if (this.ext) {
+      const cam = this.camera;
+      cam.position.copy(this.ext.pos);
+      cam.up.set(0, 1, 0);
+      cam.lookAt(this.ext.look);
+      cam.updateMatrixWorld(true);
+      // glint: grows with distance so it stays a few pixels wide, fades in as the station shrinks to a point
+      const d = cam.position.distanceTo(this.glint.position);
+      this.glint.scale.setScalar(d * 0.016);
+      (this.glint.material as THREE.SpriteMaterial).opacity = THREE.MathUtils.smoothstep(d, 900, 9000) * (0.4 + 0.6 * this.sunUp);
+      return;
+    }
     const b = this.body, t = this.elapsed;
     b.lookAt(this.bodyLook);
     b.rotateY(Math.PI); // Object3D.lookAt points +Z at the target; the camera looks down -Z
@@ -682,9 +789,11 @@ export class ISSStage implements Stage {
   private updateDebris(dt: number) {
     if (this.debris > 0) {
       const want = Math.floor(this.debris * 2.2 * dt * 60);
-      const fwd = new THREE.Vector3(-1, 0, 0);
+      const fwd = this.debrisFrom;
       for (let i = 0; i < want && this.streaks.length < 160; i++) {
-        const p = this.body.position.clone().addScaledVector(fwd, 80 + Math.random() * 80).add(new THREE.Vector3(0, (Math.random() - 0.5) * 60, (Math.random() - 0.5) * 90));
+        const off = new THREE.Vector3(0, (Math.random() - 0.5) * 60, (Math.random() - 0.5) * 90);
+        if (Math.abs(off.y) < 5) off.y += Math.sign(off.y || 1) * 5; // nothing comes straight through the truss
+        const p = this.body.position.clone().addScaledVector(fwd, 80 + Math.random() * 80).add(off);
         const v = fwd.clone().negate().add(new THREE.Vector3(0, (Math.random() - 0.5) * 0.25, (Math.random() - 0.5) * 0.5)).normalize().multiplyScalar(140 + Math.random() * 160);
         this.streaks.push({ p, v, len: 3 + Math.random() * 8, life: 2 });
       }
@@ -723,6 +832,8 @@ export class ISSStage implements Stage {
       renderer.clear();
       renderer.render(this.occScene, cam);
       renderer.clearDepth();
+      const gv = this.glint.visible;
+      this.glint.visible = false;
       this.scene.overrideMaterial = this.black;
       const env = this.scene.environment;
       this.scene.environment = null;
@@ -732,6 +843,7 @@ export class ISSStage implements Stage {
       renderer.autoClear = auto;
       this.scene.overrideMaterial = null;
       this.scene.environment = env;
+      this.glint.visible = gv;
       renderer.setRenderTarget(prevTarget);
       renderer.setClearColor(prevClear, prevAlpha);
     }
