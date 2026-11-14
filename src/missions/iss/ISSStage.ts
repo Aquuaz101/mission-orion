@@ -10,6 +10,7 @@ import type { Assets } from '../../core/Assets';
 import type { Quality } from '../../app/App';
 import { makeMaterials, handrail, batteryOru, pistolGripTool, type Mats, type Oru } from './parts';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeStatic } from '../../core/mergeStatic';
 import { emuArm, emuArmModel, suitMaterials, setGrip, type EmuHand } from './hands';
 import { earthMaterial, atmosphereMaterial, RaysShader, VisorShader, visorDirt, glowTex, R_EARTH, ALT } from './issfx';
 
@@ -31,7 +32,7 @@ export const SITE = new THREE.Vector3(-1.82, 0.0, -23.0);
 const MODEL_SCALE = 9.8378;
 
 const PRESETS: Record<Quality, { shadow: number; bloom: boolean; msaa: number; seg: number; rays: boolean; occDiv: number }> = {
-  high: { shadow: 2048, bloom: true, msaa: 4, seg: 512, rays: true, occDiv: 2 },
+  high: { shadow: 2048, bloom: true, msaa: 2, seg: 512, rays: true, occDiv: 3 },
   medium: { shadow: 1536, bloom: true, msaa: 2, seg: 384, rays: true, occDiv: 3 },
   low: { shadow: 1024, bloom: false, msaa: 0, seg: 256, rays: false, occDiv: 4 },
 };
@@ -300,9 +301,14 @@ export class ISSStage implements Stage {
         air.userData.hatchCut = true;
         air.traverse((o) => { const mesh = o as THREE.Mesh; if (mesh.isMesh) cutHatch(mesh); });
       }
-      for (const mesh of this.meshes) mesh.geometry.computeBoundingSphere();
-      this.scene.add(st);
-      this.station = st;
+      // bake the 839 NASA meshes into material clusters of ~9 m: a few hundred draw calls fewer per pass (main view,
+      // light-shaft occlusion, shadows) while culling and nearby-only shadow casting still work per cluster
+      const baked = mergeStatic(st, 9 / MODEL_SCALE); // ~9 m cells (model units are pre-scale)
+      baked.scale.copy(st.scale);
+      this.meshes = [];
+      baked.traverse((o) => { const mesh = o as THREE.Mesh; if (mesh.isMesh) { mesh.receiveShadow = true; mesh.castShadow = false; this.meshes.push(mesh); } });
+      this.scene.add(baked);
+      this.station = baked;
     }
 
     // ── airlock interior + hatch at Quest's outboard end (local +X = outward = world +Z)
@@ -1035,7 +1041,7 @@ export class ISSStage implements Stage {
     for (const s of [this.sky, this.occScene]) s.traverse((o) => disposeObj(o, keep));
     // procedural pieces only: the NASA station model is cached by Assets and reused next time
     for (const g of [this.dock, this.site, this.rig, this.body]) g.traverse((o) => disposeObj(o, keep));
-    if (this.station) this.scene.remove(this.station);
+    if (this.station) { this.scene.remove(this.station); this.station.traverse((o) => (o as THREE.Mesh).geometry?.dispose()); }
   }
   private sharedTextures: Record<string, THREE.Texture> = {};
   keepTextures(t: Record<string, THREE.Texture | null | undefined>) { for (const [k, v] of Object.entries(t)) if (v) this.sharedTextures[k] = v; }

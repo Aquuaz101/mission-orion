@@ -4,7 +4,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeStatic } from '../core/mergeStatic';
 import type { Stage } from '../core/Engine';
 import type { Assets } from '../core/Assets';
 import { createStarSphere } from './sky';
@@ -241,37 +241,7 @@ export class MenuStage implements Stage {
     const st = src.clone(true);
     st.position.set(0, 0, 0); st.rotation.set(0, 0, 0); st.scale.setScalar(1);
     st.traverse((o) => { if (o.name === 'SSRMS_Base') o.visible = true; });
-    st.updateMatrixWorld(true);
-    const shown = (o: THREE.Object3D) => { for (let p: THREE.Object3D | null = o; p; p = p.parent) if (!p.visible) return false; return true; };
-    const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
-    st.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh || Array.isArray(mesh.material) || !shown(mesh)) return;
-      const src = mesh.geometry, g = new THREE.BufferGeometry();
-      const n = src.attributes.position.count;
-      // de-quantise to float (meshopt packs positions/normals/uvs as normalised ints) and keep a common attribute set
-      const f32 = (a: THREE.BufferAttribute | THREE.InterleavedBufferAttribute | undefined, size: number) => {
-        const out = new Float32Array(n * size);
-        if (a) for (let i = 0; i < n; i++) { out[i * size] = a.getX(i); if (size > 1) out[i * size + 1] = a.getY(i); if (size > 2) out[i * size + 2] = a.getZ(i); }
-        return new THREE.BufferAttribute(out, size);
-      };
-      g.setAttribute('position', f32(src.attributes.position, 3));
-      g.setAttribute('normal', f32(src.attributes.normal, 3));
-      g.setAttribute('uv', f32(src.attributes.uv, 2));
-      g.setIndex(new THREE.BufferAttribute(src.index ? Uint32Array.from(src.index.array as ArrayLike<number>) : Uint32Array.from({ length: n }, (_, i) => i), 1));
-      if (!src.attributes.normal) g.computeVertexNormals();
-      g.applyMatrix4(mesh.matrixWorld);
-      const list = byMat.get(mesh.material) ?? [];
-      list.push(g);
-      byMat.set(mesh.material, list);
-    });
-    const baked = new THREE.Group();
-    for (const [mat, geos] of byMat) {
-      const merged = mergeGeometries(geos, false);
-      geos.forEach((g) => g.dispose());
-      if (!merged) continue;
-      baked.add(new THREE.Mesh(merged, menuMaterial(mat as THREE.MeshStandardMaterial)));
-    }
+    const baked = mergeStatic(st, 0, (m) => menuMaterial(m as THREE.MeshStandardMaterial));
     const box = new THREE.Box3().setFromObject(baked);
     baked.position.sub(box.getCenter(new THREE.Vector3()));
     const pivot = new THREE.Group();

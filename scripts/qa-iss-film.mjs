@@ -14,12 +14,12 @@ await p.keyboard.press('Enter');
 await p.waitForSelector('.ihud', { timeout: 120000 });
 const t0 = Date.now(); let n = 0, next = 0, tried = 0, lastChoice = '';
 while (Date.now() - t0 < 6 * 60000) {
-  const s = await p.evaluate(() => ({ report: !!document.querySelector('.report'), choice: document.querySelector('.ihud .choices.in .ch-prompt')?.textContent ?? null, obj: document.querySelector('.ihud .obj')?.textContent, sun: window.orion.mission?.stage?.sunElev, fps: Math.round(window.orion.engine.fps), res: window.orion.engine.resScale }));
+  const s = await p.evaluate(() => ({ report: !!document.querySelector('.report'), choice: document.querySelector('.ihud .choices.in .ch-prompt')?.textContent ?? null, obj: document.querySelector('.ihud .obj')?.textContent, sun: window.orion.mission?.stage?.sunElev, fps: Math.round(window.orion.engine.fps), res: window.orion.engine.resScale, sh: (() => { const st = window.orion.mission?.stage; if (!st) return ''; let n = 0, t = 0; for (const m of st.meshes) if (m.castShadow) { n++; t += (m.geometry.index ? m.geometry.index.count : 0) / 3; } return n + ' casters ' + (t / 1e6).toFixed(2) + 'M tris'; })() }));
   if (s.report) break;
   if (Date.now() - t0 >= next) {
     next += EVERY;
     await p.screenshot({ path: `${OUT}/f${String(n++).padStart(3, '0')}.jpg`, quality: 70, type: 'jpeg' });
-    console.log(`f${n - 1}`, ((Date.now() - t0) / 1000).toFixed(0) + 's', `sun ${s.sun?.toFixed(1)}`, `fps ${s.fps} res ${s.res}`, '|', s.obj);
+    console.log(`f${n - 1}`, ((Date.now() - t0) / 1000).toFixed(0) + 's', `sun ${s.sun?.toFixed(1)}`, `fps ${s.fps} res ${s.res} | ${s.sh}`, '|', s.obj);
   }
   if (s.choice) {
     if (s.choice !== lastChoice) { lastChoice = s.choice; tried = 0; await p.waitForTimeout(700); }

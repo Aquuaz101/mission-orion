@@ -393,7 +393,7 @@ export class App {
 
   applyQuality() {
     const dpr = window.devicePixelRatio || 1;
-    const pr = this.quality === 'low' ? Math.min(dpr, 1) * 0.85 : this.quality === 'medium' ? Math.min(dpr, 1.25) : Math.min(dpr, 1.75);
+    const pr = this.quality === 'low' ? Math.min(dpr, 1) * 0.85 : this.quality === 'medium' ? Math.min(dpr, 1.25) : Math.min(dpr, 1.5);
     this.engine.targetFps = 58;
     this.engine.setBasePixelRatio(pr);
   }
