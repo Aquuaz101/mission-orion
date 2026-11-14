@@ -311,12 +311,14 @@ function renderLayout(next: ControllerLayout, title: string, subtitle = '', miss
         <div class="center">
           <div class="compass"><div class="arrow"></div><span class="dist mono">-</span></div>
           <button class="interact disabled"><span class="label">INTERACT</span></button>
+          <button class="mini view-btn">VIEW · MASTCAM</button>
         </div>
         <div class="joy fixed right"><div class="ring"></div><div class="knob"></div><span class="joy-label mono">CAMERA</span></div>
       </section>`);
     joystick(el.querySelector('.joy.left')!, 'l');
     joystick(el.querySelector('.joy.right')!, 'r');
     holdButton(el.querySelector('.interact')!, 'interact');
+    el.querySelector('.view-btn')!.addEventListener('click', () => { vibrate(10); send({ t: 'tap', id: 'view' }); });
     el.querySelector('.skip')!.addEventListener('click', () => send({ t: 'tap', id: 'skip' }));
     main.appendChild(el);
     return;

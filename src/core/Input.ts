@@ -34,8 +34,25 @@ export class Input {
   private valueFns = new Set<ValueFn>();
   /** When false, mouse drags on the canvas are ignored (e.g. while menus are open). */
   pointerEnabled = false;
+  /** 'lock': click captures the mouse for free-look (tank-game style); 'drag': click-and-drag. */
+  lookMode: 'drag' | 'lock' = 'drag';
 
-  constructor(link: Link, canvas: HTMLCanvasElement) {
+  get pointerLocked() {
+    return document.pointerLockElement === this.canvas;
+  }
+  releasePointer() {
+    if (this.pointerLocked) document.exitPointerLock();
+  }
+
+  constructor(link: Link, private canvas: HTMLCanvasElement) {
+    document.addEventListener('mousemove', (e) => {
+      if (!this.pointerLocked || !this.pointerEnabled) return;
+      this.mouse.dx += e.movementX;
+      this.mouse.dy += e.movementY;
+    });
+    canvas.addEventListener('click', () => {
+      if (this.pointerEnabled && this.lookMode === 'lock' && !this.pointerLocked) void canvas.requestPointerLock?.();
+    });
     window.addEventListener('keydown', (e) => {
       if (e.target instanceof HTMLInputElement) return;
       if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
@@ -50,7 +67,7 @@ export class Input {
     window.addEventListener('blur', () => this.keys.clear());
 
     canvas.addEventListener('pointerdown', (e) => {
-      if (!this.pointerEnabled || e.button !== 0) return;
+      if (!this.pointerEnabled || e.button !== 0 || this.lookMode === 'lock') return;
       this.mouse.dragging = true;
       canvas.setPointerCapture(e.pointerId);
     });

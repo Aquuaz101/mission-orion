@@ -1,0 +1,50 @@
+// Jump straight to key Mars scenes (storm, ARES reveal, tow, recovery, first person) for visual checks.
+import { chromium } from 'playwright-core';
+const OUT = process.argv[2] ?? '.';
+const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true, args: ['--use-angle=d3d11'] });
+const pc = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+const errors = [];
+pc.on('pageerror', (e) => errors.push(e.message));
+pc.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+await pc.goto('http://localhost:5173');
+await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
+await pc.click('.begin'); await pc.waitForTimeout(1000);
+await pc.click('.cod-item[data-a="start"]'); await pc.waitForTimeout(500);
+await pc.click('.choice[data-m="device"]'); await pc.waitForSelector('.ms'); await pc.waitForTimeout(600);
+await pc.click('.ms-card[data-id="mars"]'); await pc.waitForSelector('.briefing', { timeout: 20000 }); await pc.waitForTimeout(400);
+await pc.keyboard.press('Enter');
+await pc.waitForFunction(() => window.orion.mission?.phase === 'explore', null, { timeout: 60000 });
+await pc.keyboard.press('KeyV'); await pc.waitForTimeout(1000);
+await pc.screenshot({ path: `${OUT}/s01-fp.png` });
+await pc.keyboard.press('KeyV');
+// Jump to the emergency next to ARES-7
+await pc.evaluate(() => {
+  const m = window.orion.mission, st = m.stage;
+  m.collected = ['igneous', 'hematite']; st.removeSpecimen('s1'); st.removeSpecimen('s2');
+  m.startEmergency();
+  const a = m.pois.get('ares').pos, s2 = m.pois.get('s2').pos;
+  const p = a.clone().lerp(s2, 0.2);
+  st.placeRover(p, Math.atan2(a.x - p.x, a.z - p.z));
+  st.stormFront = 1; st.storm = 1;
+});
+await pc.waitForTimeout(3500);
+await pc.screenshot({ path: `${OUT}/s02-reveal.png` });
+await pc.waitForFunction(() => !window.orion.mission.locked && !window.orion.mission.stage.inCutscene, null, { timeout: 30000 });
+await pc.evaluate(() => { const m = window.orion.mission, st = m.stage; const a = st.ares.group.position; st.placeRover(a.clone().add({ x: 4, y: 0, z: 4 }), st.roverYaw); });
+await pc.waitForTimeout(300);
+await pc.keyboard.press('KeyE');
+await pc.waitForTimeout(4200);
+await pc.screenshot({ path: `${OUT}/s03-latch.png` });
+await pc.waitForFunction(() => window.orion.mission.phase === 'emergency-tow', null, { timeout: 15000 });
+await pc.keyboard.down('KeyW'); await pc.waitForTimeout(3500); await pc.keyboard.up('KeyW');
+await pc.mouse.move(800, 450);
+await pc.evaluate(() => { window.orion.mission.stage.lookYaw = 2.4; });
+await pc.waitForTimeout(900);
+await pc.screenshot({ path: `${OUT}/s04-tow.png` });
+// Recovery cinematic
+await pc.evaluate(() => { const m = window.orion.mission, st = m.stage; const z = m.pois.get('zone').pos; st.ares.group.position.set(z.x, z.y, z.z); });
+await pc.waitForFunction(() => window.orion.mission.phase === 'recovery', null, { timeout: 5000 });
+await pc.waitForTimeout(4500); await pc.screenshot({ path: `${OUT}/s05-recovery-a.png` });
+await pc.waitForTimeout(4500); await pc.screenshot({ path: `${OUT}/s06-recovery-b.png` });
+console.log(errors.length ? errors.join('\n') : 'no console errors');
+await browser.close();

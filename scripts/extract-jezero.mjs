@@ -12,10 +12,11 @@ const BASE = 'https://astrogeo-ard.s3-us-west-2.amazonaws.com/mars/mro/hirise/co
 const DTM_URL = BASE + 'DTEEC_048842_1985_048908_1985_U01.tif';
 const ORTHO_URL = BASE + 'ESP_048842_1985_RED_A_01_ORTHO.tif';
 
-// Window in full-res DTM pixels (chosen from the hillshade preview: delta-front scarps + crater floor).
-const PX0 = 1250, PY0 = 500, SIZE_PX = 1536;
-const OUT = 768;        // heightmap resolution (≈2 m / sample)
-const ORTHO_OUT = 1024; // minimap / albedo image
+// Window in full-res DTM pixels (chosen with scripts/preview-dtm.mjs): delta-front mesas + channels.
+// v2 (compact cinematic map): 720 m window at native ~1 m resolution.
+const PX0 = Number(process.env.PX0 ?? 1650), PY0 = Number(process.env.PY0 ?? 520), SIZE_PX = Number(process.env.SIZE ?? 720);
+const OUT = Number(process.env.OUT ?? 720);   // heightmap resolution (≈1 m / sample)
+const ORTHO_OUT = 2048;                         // HiRISE image (≈0.36 m / px) for albedo + minimap
 
 await mkdir('public/data', { recursive: true });
 

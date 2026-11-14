@@ -99,6 +99,13 @@ export const LINES = {
   mmrtg: 'Your rover does not depend on sunlight. Like Perseverance, it carries a nuclear power source that charges its batteries, but hard driving drains them faster than they recharge.',
   aresNear: 'ARES-7 in range. Press interact to link its navigation to your rover.',
   linked: 'Link established. ARES-7 will follow your path. Lead it to the recovery ridge, marked in green.',
+  aresReveal: [
+    { text: 'There. ARES-7. Its solar arrays are buried under dust, and it has sunk into the sand.', mood: 'alert' as const },
+    { text: 'Get in front of it and attach the tow cable.', mood: 'alert' as const },
+  ],
+  latched: 'Tow cable secured. ARES-7 is free of the sand. Take it up to the sunlit ridge. Drive carefully: you are towing extra weight.',
+  intro: 'Rover systems online. Proceed up the channel to the first sample site.',
+  sand: 'Soft sand slows the rover. In 2009, NASA’s Spirit rover became permanently stuck in soft Martian sand.',
   recovering: [
     'ARES-7 is on the ridge. The wind up here is clearing dust from its solar panels.',
     'Real Martian winds did this for NASA’s Spirit and Opportunity rovers: cleaning events restored their power several times.',

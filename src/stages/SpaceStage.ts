@@ -278,6 +278,13 @@ export class SpaceStage implements Stage {
     this.scene.add(pivot);
   }
 
+  /** Fly the camera into the showcase object along the line to camera (cutscene dive). */
+  diveIntoShowcase(stopDistance: number, speed = 1.3) {
+    const toCam = SHOTS.briefing.pos.clone().sub(this.showcaseBase).normalize();
+    this.target = { pos: this.showcaseBase.clone().addScaledVector(toCam, stopDistance), look: this.showcaseBase.clone(), fov: 36 };
+    this.lerpSpeed = speed;
+  }
+
   setShot(name: SpaceShot, speed = 0.6) {
     this.target = SHOTS[name];
     this.lerpSpeed = speed;

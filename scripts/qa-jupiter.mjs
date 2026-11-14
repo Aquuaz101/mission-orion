@@ -1,4 +1,4 @@
-// Automated playthrough of Mission 01 (Jupiter) in real Chrome + phone controller check.
+﻿// Automated playthrough of Mission 01 (Jupiter) in real Chrome + phone controller check.
 // Usage: node scripts/qa-jupiter.mjs <outDir>
 import { chromium } from 'playwright-core';
 
@@ -24,12 +24,12 @@ await pc.goto(BASE);
 await pc.waitForSelector('.begin:not([hidden])', { timeout: 60000 });
 await pc.click('.begin');
 await pc.waitForTimeout(1200);
-await pc.click('[data-a="start"]');
+await pc.click('.cod-item[data-a="start"]');
 await pc.waitForTimeout(800);
 await pc.click('.choice[data-m="device"]');
-await pc.waitForSelector('.mission[data-id="jupiter"]');
+await pc.waitForSelector('.ms-card[data-id="jupiter"]');
 await pc.waitForTimeout(900);
-await pc.click('.mission[data-id="jupiter"]');
+await pc.click('.ms-card[data-id="jupiter"]');
 await pc.waitForSelector('.briefing', { timeout: 10000 });
 await pc.waitForTimeout(2600);
 await shot('j01-briefing');
@@ -59,13 +59,13 @@ await phone.waitForTimeout(900);
 await phone.mouse.up();
 await pc.waitForTimeout(200);
 const after = await pc.evaluate(() => ({ x: window.orion.mission.stage.centerTarget.x, y: window.orion.mission.stage.centerTarget.y }));
-console.log(`phone pad moved telescope: (${before.x.toFixed(2)},${before.y.toFixed(2)}) → (${after.x.toFixed(2)},${after.y.toFixed(2)})`, after.x < before.x ? '✔' : '✘');
+console.log(`phone pad moved telescope: (${before.x.toFixed(2)},${before.y.toFixed(2)}) â†’ (${after.x.toFixed(2)},${after.y.toFixed(2)})`, after.x < before.x ? 'âœ”' : 'âœ˜');
 // Phone zoom button
 const f0 = await pc.evaluate(() => window.orion.mission.stage.fieldTarget);
 const zin = await phone.locator('.zoom-in').boundingBox();
 await phone.mouse.move(zin.x + 20, zin.y + 20); await phone.mouse.down(); await phone.waitForTimeout(600); await phone.mouse.up();
 const f1 = await pc.evaluate(() => window.orion.mission.stage.fieldTarget);
-console.log(`phone zoom-in: field ${f0.toFixed(2)} → ${f1.toFixed(2)}`, f1 < f0 ? '✔' : '✘');
+console.log(`phone zoom-in: field ${f0.toFixed(2)} â†’ ${f1.toFixed(2)}`, f1 < f0 ? 'âœ”' : 'âœ˜');
 
 // Bad capture first: must be rejected.
 await pc.keyboard.press('Space');
@@ -110,15 +110,16 @@ await pc.waitForTimeout(1500);
 await shot('j08-report');
 console.log('report figures:', await pc.locator('.report-figs figure').count());
 
-// Pause menu works during a mission → restart path
+// Pause menu works during a mission â†’ restart path
 await pc.click('.replay');
 await pc.waitForSelector('.briefing', { timeout: 10000 });
 await pc.keyboard.press('Escape');
 await pc.waitForSelector('.pause', { timeout: 3000 });
 await shot('j09-pause');
 await pc.click('[data-a="abort"]');
-await pc.waitForSelector('.select', { timeout: 8000 });
-console.log('abort → mission select ✔');
+await pc.waitForSelector('.ms', { timeout: 8000 });
+console.log('abort â†’ mission select âœ”');
 
 console.log(errors.length ? `console issues:\n${errors.join('\n')}` : 'no console errors');
 await browser.close();
+

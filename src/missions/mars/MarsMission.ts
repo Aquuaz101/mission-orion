@@ -6,21 +6,27 @@ import { MarsStage, MAX_SPEED } from './MarsStage';
 import { SAMPLES, SAMPLE_TUBE, BRIEF_SPECS, briefingLines, LINES, type SampleKind } from './script';
 import { html, $, wait, escapeHtml } from '../../ui/dom';
 
-type Phase = 'explore' | 'emergency-find' | 'emergency-lead' | 'recovery' | 'final' | 'complete' | 'failed';
+type Phase = 'intro' | 'explore' | 'emergency-find' | 'emergency-tow' | 'recovery' | 'final' | 'complete' | 'failed';
 
-interface Poi { id: string; pos: THREE.Vector3; kind: 'sample' | 'ares' | 'zone'; sample?: SampleKind; label: string; color: string }
+interface Poi { id: string; pos: THREE.Vector3; kind: 'sample' | 'ares' | 'zone' | 'start'; sample?: SampleKind; label: string }
 
-const EMERGENCY_SECONDS = 150;
-const INTERACT_RANGE = 7;
-const ZONE_RADIUS = 13;
+const EMERGENCY_SECONDS = 180;
+const INTERACT_RANGE = 6;
+const ZONE_RADIUS = 11;
 const JEZERO = { lat: 18.38, lon: 77.58 };
 
-// Points of interest on the 768-px Jezero grid (chosen from the HiRISE hillshade), snapped to flat ground at runtime.
-const GRID = { start: [470, 655], s1: [452, 618], s2: [392, 606], ares: [356, 536], zone: [430, 486], s3: [452, 470] };
+/**
+ * Route through the real Jezero delta-front channels (720-px grid of the 732 m HiRISE crop).
+ * Start in a shadowed ravine → channel → basin pit (ARES-7) → sunlit mesa (recovery) → layered outcrop.
+ */
+const GRID: Record<string, [number, number]> = {
+  start: [352, 594], s1: [336, 515], s2: [350, 412], ares: [385, 285], zone: [480, 262], s3: [505, 212],
+};
 
 /**
  * Mission 02: Perseverance-class rover in Jezero Crater.
- * Explore → (after 2 samples) fictional ARES-7 dust-storm emergency → recovery → final sample.
+ * Cinematic, linear: explore → (after 2 samples) fictional ARES-7 dust-storm emergency →
+ * tow to the ridge → recovery → final sample.
  */
 export class MarsMission implements Mission {
   private stage: MarsStage | null = null;
@@ -30,21 +36,18 @@ export class MarsMission implements Mission {
   private disposers: (() => void)[] = [];
   private finish!: (e: MissionExit) => void;
 
-  private phase: Phase = 'explore';
+  private phase: Phase = 'intro';
   private pois = new Map<string, Poi>();
   private targetId: string | null = null;
   private collected: SampleKind[] = [];
   private battery = 1;
   private timer: number | null = null;
-  private locked = false; // controls locked during cutscenes
-  private aresLinked = false;
-  private breadcrumbs: THREE.Vector3[] = [];
+  private locked = true;
   private snapshot: { pos: THREE.Vector3; yaw: number; battery: number } | null = null;
   private startTime = 0;
-  private lastSteepWarn = 0;
-  private saidSpeedNote = false;
-  private saidStormFacts = false;
-  private minimapImg: CanvasImageSource | null = null;
+  private lastWarn = 0;
+  private flags = new Set<string>();
+  private minimapImg: HTMLImageElement | null = null;
 
   constructor(private app: App) {}
 
@@ -53,27 +56,24 @@ export class MarsMission implements Mission {
     void this.flow();
     return exit;
   }
-
   abort(exit: MissionExit) {
     this.finish(exit);
   }
-
   setPaused(p: boolean) {
     this.paused = p;
     if (this.stage) this.stage.paused = p;
   }
-
   dispose() {
     this.disposed = true;
     this.disposers.forEach((d) => d());
     this.disposers = [];
     this.hud?.remove();
+    this.app.input.releasePointer();
+    this.app.input.lookMode = 'drag';
     this.app.space.showModel(null);
     this.app.sfx.setWind(0);
-    if (this.stage) {
-      this.stage.dispose();
-      this.stage = null;
-    }
+    this.stage?.dispose();
+    this.stage = null;
   }
 
   private async flow() {
@@ -82,31 +82,34 @@ export class MarsMission implements Mission {
     if (!go) return this.finish({ to: 'select' });
     await this.descend();
     if (this.disposed) return;
+    await this.introCutscene();
+    if (this.disposed) return;
     this.startTime = performance.now();
+    this.phase = 'explore';
+    this.locked = false;
     this.setTarget('s1');
-    void this.app.commander.say(LINES.start, { interrupt: true });
+    void this.app.commander.say([LINES.intro, LINES.start], { interrupt: true });
   }
 
   // ─────────────────────────────────────────── briefing (Mars globe, Jezero marker)
+  private globeDir = new THREE.Vector3();
+
   private briefing(): Promise<boolean> {
     const { app } = this;
     app.engine.setStage(app.space);
     app.space.setShot('briefing', 0.7);
-
     const globe = new THREE.Group();
-    const sphere = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.MeshStandardMaterial({ map: app.assets.textures.mars ?? null, roughness: 1, color: app.assets.textures.mars ? 0xffffff : 0xb05a30 }));
-    globe.add(sphere);
+    globe.add(new THREE.Mesh(new THREE.SphereGeometry(1, 96, 64), new THREE.MeshStandardMaterial({ map: app.assets.textures.mars ?? null, roughness: 1, color: app.assets.textures.mars ? 0xffffff : 0xb05a30 })));
     const u = (JEZERO.lon + 180) / 360, v = (90 - JEZERO.lat) / 180;
     const phi = u * Math.PI * 2, theta = v * Math.PI;
     const dir = new THREE.Vector3(-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta));
-    const marker = new THREE.Mesh(new THREE.RingGeometry(0.035, 0.05, 32), new THREE.MeshBasicMaterial({ color: 0x4fd8ff, side: THREE.DoubleSide, toneMapped: false }));
-    marker.position.copy(dir.clone().multiplyScalar(1.004));
-    marker.lookAt(dir.clone().multiplyScalar(2));
-    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.012, 16), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
-    dot.position.copy(dir.clone().multiplyScalar(1.005));
-    dot.lookAt(dir.clone().multiplyScalar(2));
-    globe.add(marker, dot);
-    // aim slightly off-centre so Jezero sits in view with the limb visible
+    this.globeDir.copy(dir);
+    for (const [r0, r1, c] of [[0.035, 0.05, 0x4fd8ff], [0, 0.012, 0xffffff]] as const) {
+      const m = new THREE.Mesh(r0 ? new THREE.RingGeometry(r0, r1, 32) : new THREE.CircleGeometry(r1, 16), new THREE.MeshBasicMaterial({ color: c, side: THREE.DoubleSide, toneMapped: false }));
+      m.position.copy(dir.clone().multiplyScalar(1.005));
+      m.lookAt(dir.clone().multiplyScalar(2));
+      globe.add(m);
+    }
     app.space.showModel(globe, 6.5, { spin: false, faceDir: dir.clone().add(new THREE.Vector3(0.35, 0.15, 0)).normalize() });
     app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 02 · Briefing', subtitle: 'Tap Skip to jump ahead' });
 
@@ -116,7 +119,7 @@ export class MarsMission implements Mission {
         <div class="brief-panel panel brackets fade-up">
           <div class="eyebrow">Mission 02 · Briefing</div>
           <h2>Red Planet Expedition</h2>
-          <p class="brief-lead">Pilot a <b>Perseverance-class rover</b> across the real terrain of Jezero Crater’s ancient river delta and collect three geological samples.</p>
+          <p class="brief-lead">Pilot a <b>Perseverance-class rover</b> through the real channels of Jezero Crater’s ancient river delta and collect three geological samples.</p>
           <div class="brief-specs mono">${specs}</div>
           <h4 class="mono">Objectives</h4>
           <ol class="brief-objs">
@@ -134,153 +137,172 @@ export class MarsMission implements Mission {
       </section>`);
     void app.screens.show(el);
     void app.commander.say(briefingLines(app.mode), { interrupt: true });
-
     return new Promise((resolve) => {
-      const done = (go: boolean) => {
-        off();
-        app.commander.clear();
-        app.sfx[go ? 'confirm' : 'back']();
-        resolve(go);
-      };
+      const done = (go: boolean) => { off(); app.commander.clear(); app.sfx[go ? 'confirm' : 'back'](); resolve(go); };
       $(el, '.go').addEventListener('click', () => done(true));
       $(el, '.abort').addEventListener('click', () => done(false));
-      const off = app.input.onPress((id) => {
-        if (!this.paused && (id === 'confirm' || id === 'primary')) done(true);
-      });
+      const off = app.input.onPress((id) => { if (!this.paused && (id === 'confirm' || id === 'primary')) done(true); });
       this.disposers.push(off);
     });
   }
 
-  // ─────────────────────────────────────────── descent + world setup
+  // ─────────────────────────────────────────── descent: dive into the globe, build the world
   private async descend() {
     const { app } = this;
-    const boot = html(`<section class="scope-boot mars-boot"><div class="boot-lines mono"></div></section>`);
-    void app.screens.show(boot);
-    app.space.setShot('depart', 0.9);
-    const box = $(boot, '.boot-lines');
-    const say = async (l: string, ms = 420) => { box.appendChild(html(`<div class="fade-up">› ${l}</div>`)); app.sfx.blip(); await wait(ms); };
-    await say('ATMOSPHERIC ENTRY · SIMULATED');
-    await say('LOADING TERRAIN · HiRISE DTM · JEZERO DELTA FRONT', 60);
-    await wait(50);
+    const cover = html(`<section class="cine-cover"><div class="cc-lines mono"></div></section>`);
+    void app.screens.show(cover);
+    app.space.diveIntoShowcase(3.45, 1.1); // fly into Jezero on the globe
+    app.sfx.servo(2.2);
+    await wait(1700);
+    cover.classList.add('black');
+    const lines = $(cover, '.cc-lines');
+    const say = async (l: string, ms = 380) => { lines.appendChild(html(`<div class="fade-up">${l}</div>`)); app.sfx.blip(); await wait(ms); };
+    await say('ENTRY · DESCENT · LANDING');
+    await wait(80);
 
+    // Build the world while the screen is black.
     this.stage = new MarsStage(app.assets, app.engine.renderer, app.quality);
     const st = this.stage;
     st.resize(window.innerWidth, window.innerHeight);
     this.buildPois();
-    const start = this.pois.get('start')!.pos;
-    const first = this.pois.get('s1')!.pos;
+    const start = this.pois.get('start')!.pos, first = this.pois.get('s1')!.pos;
     st.placeRover(start, Math.atan2(first.x - start.x, first.z - start.z));
     st.update(0.016);
-    st.render(); // compile shaders while the boot text is up
+    st.render();
+    await say('TERRAIN · HiRISE DTM · JEZERO DELTA FRONT');
+    await say('SKY CRANE · TOUCHDOWN CONFIRMED', 450);
 
-    await say('SKY CRANE · TOUCHDOWN CONFIRMED');
-    await say('ROVER SYSTEMS NOMINAL', 500);
     app.space.showModel(null);
     app.engine.setStage(st);
     app.sfx.setAmbience('mars');
     app.input.pointerEnabled = true;
-
-    const ortho = app.assets.textures.jezeroOrtho?.image as CanvasImageSource | undefined;
-    this.minimapImg = ortho ?? null;
+    app.input.lookMode = 'lock';
+    const img = app.assets.textures.jezeroOrtho?.image as HTMLImageElement | undefined;
+    this.minimapImg = img ?? null;
     this.hud = this.buildHud();
+    this.hud.classList.add('cine');
     await app.screens.show(this.hud);
-    app.link.send({ t: 'layout', layout: 'mars', title: 'Drive to the cyan marker' });
+    app.link.send({ t: 'layout', layout: 'mars', title: 'Stand by' });
 
     this.disposers.push(
       app.engine.onTick((dt) => this.tick(dt)),
       app.input.onPress((id) => {
         if (this.paused) return;
         if (id === 'interact' || id === 'primary') void this.interact();
+        if (id === 'key:KeyV' || id === 'view') this.toggleView();
       }),
       () => (app.input.pointerEnabled = false),
     );
   }
 
+  /** COD-style opener: aerial sweep down the channel onto the rover with a location card. */
+  private async introCutscene() {
+    const st = this.stage!;
+    const P = st.roverPos, f = st.forward;
+    const back = (d: number, up: number, side = 0) => new THREE.Vector3(P.x - f.x * d + f.z * side, P.y + up, P.z - f.z * d - f.x * side);
+    const ahead = (d: number, up = 0) => new THREE.Vector3(P.x + f.x * d, P.y + up, P.z + f.z * d);
+    this.locationCard(['JEZERO CRATER · MARS', 'Delta front · 18.4° N 77.5° E', 'Perseverance-class rover · Sol 1'], 'Real terrain: NASA HiRISE elevation data');
+    const cover = document.querySelector('.cine-cover');
+    cover?.classList.add('out');
+    await st.playCine([
+      { pos: ahead(170, 95), look: ahead(40, 0) },
+      { pos: ahead(90, 45).add(new THREE.Vector3(25, 0, 0)), look: P.clone() },
+      { pos: back(25, 14, -10), look: ahead(2, 1) },
+      { pos: back(9.5, 3.8), look: ahead(0, 1.4) },
+    ], 8.5);
+    cover?.remove();
+    this.hud!.classList.remove('cine');
+  }
+
+  private locationCard(lines: string[], foot: string) {
+    const card = html(`<div class="loc-card mono"></div>`);
+    this.hud!.appendChild(card);
+    lines.forEach((l, i) => setTimeout(() => card.appendChild(html(`<div class="${i === 0 ? 'big' : ''}">${typeHtml(l)}</div>`)), 600 + i * 900));
+    setTimeout(() => card.appendChild(html(`<div class="foot">${foot}</div>`)), 600 + lines.length * 900);
+    setTimeout(() => card.classList.add('out'), 8200);
+    setTimeout(() => card.remove(), 9200);
+  }
+
   private buildPois() {
     const st = this.stage!;
-    const at = (k: keyof typeof GRID, r = 14) => st.findFlat(st.terrain.pixelToWorld(GRID[k][0], GRID[k][1]), r);
+    const at = (k: string, r = 8) => st.findFlat(st.terrain.pixelToWorld(GRID[k][0], GRID[k][1]), r);
     const add = (p: Poi) => this.pois.set(p.id, p);
-    add({ id: 'start', pos: at('start'), kind: 'zone', label: 'Start', color: '#fff' });
-    add({ id: 's1', pos: at('s1'), kind: 'sample', sample: 'igneous', label: 'Sample 1', color: '#4fd8ff' });
-    add({ id: 's2', pos: at('s2'), kind: 'sample', sample: 'hematite', label: 'Sample 2', color: '#4fd8ff' });
-    add({ id: 'ares', pos: at('ares', 10), kind: 'ares', label: 'ARES-7', color: '#ff7a2f' });
-    add({ id: 'zone', pos: at('zone', 18), kind: 'zone', label: 'Recovery ridge', color: '#5dffa8' });
-    add({ id: 's3', pos: at('s3', 12), kind: 'sample', sample: 'sedimentary', label: 'Sample 3', color: '#4fd8ff' });
+    add({ id: 'start', pos: at('start', 10), kind: 'start', label: 'Start' });
+    add({ id: 's1', pos: at('s1'), kind: 'sample', sample: 'igneous', label: 'Sample' });
+    add({ id: 's2', pos: at('s2'), kind: 'sample', sample: 'hematite', label: 'Sample' });
+    add({ id: 'ares', pos: at('ares', 6), kind: 'ares', label: 'ARES-7' });
+    add({ id: 'zone', pos: at('zone', 12), kind: 'zone', label: 'Recovery ridge' });
+    add({ id: 's3', pos: at('s3'), kind: 'sample', sample: 'sedimentary', label: 'Sample' });
+    // keep objectives and a corridor along each leg of the route free of boulders
+    const order = ['start', 's1', 's2', 'ares', 'zone', 's3'].map((k) => this.pois.get(k)!.pos);
+    const clear: THREE.Vector3[] = [];
+    for (let i = 1; i < order.length; i++) {
+      const a = order[i - 1], b = order[i], L = a.distanceTo(b);
+      for (let d = 0; d <= L; d += 4) clear.push(a.clone().lerp(b, d / L));
+    }
+    st.clearAround(clear, 6);
     st.addSpecimen('s1', 'igneous', this.pois.get('s1')!.pos);
     st.addSpecimen('s2', 'hematite', this.pois.get('s2')!.pos);
   }
 
   private setTarget(id: string | null) {
-    const st = this.stage!;
-    if (this.targetId && this.targetId !== 'zone') st.removeBeacon(this.targetId);
     this.targetId = id;
-    if (!id) return;
-    const p = this.pois.get(id)!;
-    const color = p.kind === 'ares' ? 0xff7a2f : p.kind === 'zone' ? 0x5dffa8 : 0x4fd8ff;
-    st.addBeacon(id, p.pos, color, p.kind === 'zone' ? ZONE_RADIUS : 2.6);
     this.paintObjective();
   }
 
   // ─────────────────────────────────────────── interaction
-  private distTo(id: string) {
-    const p = this.pois.get(id);
-    if (!p || !this.stage) return Infinity;
-    const r = this.stage.roverPos;
-    return Math.hypot(p.pos.x - r.x, p.pos.z - r.z);
+  private distTo(p: THREE.Vector3) {
+    const r = this.stage!.roverPos;
+    return Math.hypot(p.x - r.x, p.z - r.z);
   }
-
-  /** What the interact button does right now (null = nothing). */
   private currentAction(): string | null {
-    if (this.locked || !this.targetId) return null;
+    if (this.locked || !this.targetId || !this.stage || this.stage.inCutscene) return null;
     const p = this.pois.get(this.targetId)!;
-    if (p.kind === 'sample' && this.distTo(p.id) < INTERACT_RANGE) return 'COLLECT SAMPLE';
-    if (p.kind === 'ares' && !this.aresLinked && this.aresDist() < INTERACT_RANGE + 1) return 'LINK ARES-7';
+    if (p.kind === 'sample' && this.distTo(p.pos) < INTERACT_RANGE) return 'COLLECT SAMPLE';
+    if (p.kind === 'ares' && this.phase === 'emergency-find' && this.distTo(this.stage.ares.group.position) < 10) return 'ATTACH TOW CABLE';
     return null;
   }
 
-  private aresDist() {
-    const st = this.stage!;
-    const a = st.ares.group.position;
-    return Math.hypot(a.x - st.roverPos.x, a.z - st.roverPos.z);
+  private toggleView() {
+    if (!this.stage || this.locked) return;
+    this.stage.setView(this.stage.view === 'chase' ? 'fp' : 'chase');
+    this.app.sfx.blip();
+    $(this.hud!, '.view-mode').textContent = this.stage.view === 'fp' ? 'MASTCAM-Z' : 'CHASE CAM';
+    this.hud!.classList.toggle('fp', this.stage.view === 'fp');
   }
 
   private async interact() {
     const action = this.currentAction();
     if (!action || !this.stage) return;
     const st = this.stage;
+    this.locked = true;
+    st.speed = 0;
     if (action === 'COLLECT SAMPLE') {
       const poi = this.pois.get(this.targetId!)!;
-      this.locked = true;
-      st.speed = 0;
-      st.removeBeacon(poi.id); // clear the light beam so the arm is visible
-      this.app.sfx.servo(1.2);
+      const prevView = st.view;
+      st.setView('chase');
+      // side-on camera to show the arm reaching the rock
+      const rock = st.specimens.get(poi.id)!.position.clone();
+      st.setOrbit(rock.clone().addScaledVector(st.forward, -1), 6.5, 2.2, 0.12); // slow orbit to watch the arm work
+      this.hud!.classList.add('cine');
       this.app.link.buzz([20, 40, 20, 40, 20]);
-      this.showProgress('Robotic arm deploying · coring sample');
-      await st.playArm(4.5);
+      await st.pickUp(poi.id, (s) => {
+        if (s === 'approach') this.showProgress('Autonomous approach');
+        if (s === 'reach') { this.showProgress('Robotic arm · reaching'); this.app.sfx.servo(1.6); }
+        if (s === 'grab') { this.showProgress('Coring · sample acquired'); this.app.sfx.shutter(); }
+        if (s === 'stow') { this.showProgress('Stowing arm · sealing tube'); this.app.sfx.servo(1.4); }
+      });
       if (this.disposed) return;
-      this.app.sfx.servo(0.8);
-      st.removeSpecimen(poi.id);
-      st.removeBeacon(poi.id);
+      st.setOrbit(null);
+      st.setView(prevView);
+      this.hud!.classList.remove('cine');
+      this.hideProgress();
       this.targetId = null;
-      this.hideProgress();
+      this.locked = false;
       this.collect(poi.sample!);
+    } else if (action === 'ATTACH TOW CABLE') {
+      await this.latchCutscene();
       this.locked = false;
-    } else if (action === 'LINK ARES-7') {
-      this.locked = true;
-      st.speed = 0;
-      this.showProgress('Linking navigation · ARES-7');
-      this.app.sfx.blip();
-      await wait(1600);
-      if (this.disposed) return;
-      this.hideProgress();
-      this.app.sfx.linked();
-      this.aresLinked = true;
-      this.breadcrumbs = [st.roverPos.clone()];
-      st.removeBeacon('ares');
-      this.phase = 'emergency-lead';
-      this.setTarget('zone');
-      this.locked = false;
-      void this.app.commander.say(LINES.linked, { interrupt: true });
     }
   }
 
@@ -289,10 +311,10 @@ export class MarsMission implements Mission {
     this.collected.push(kind);
     this.app.sfx.success();
     this.app.link.buzz([40, 60, 40]);
+    this.notify(`SAMPLE SECURED · ${this.collected.length} / 3`);
     this.paintInventory();
     this.showSampleCard(kind);
     const lines = this.app.commander.say(info.collected, { interrupt: true });
-
     if (kind === 'igneous') {
       this.setTarget('s2');
       void this.app.commander.say(LINES.next);
@@ -313,35 +335,92 @@ export class MarsMission implements Mission {
     this.hud!.classList.add('alert');
     const ares = this.pois.get('ares')!;
     st.ares.group.position.copy(ares.pos);
-    st.ares.group.rotation.y = 0.8;
+    st.ares.group.position.y = st.terrain.heightAt(ares.pos.x, ares.pos.z);
+    st.ares.group.rotation.y = 2.2;
+    st.ares.body.rotation.set(0.16, 0, -0.2); // stuck: nose-down, listing
+    st.ares.body.position.y = -0.28;          // sunk into the sand
     st.ares.group.visible = true;
     st.ares.setDust(1);
+    st.ares.setWings(0);
     this.setTarget('ares');
     this.timer = EMERGENCY_SECONDS;
-    this.battery = Math.min(this.battery, 0.82);
+    this.battery = Math.min(this.battery, 0.85);
     this.snapshot = { pos: st.roverPos.clone(), yaw: st.roverYaw, battery: this.battery };
     this.paintObjective();
     await this.app.commander.say(LINES.emergency, { interrupt: true });
+  }
+
+  private async revealCutscene() {
+    const st = this.stage!;
+    this.locked = true;
+    st.speed = 0;
+    this.hud!.classList.add('cine');
+    st.setOrbit(st.ares.group.position, 8.5, 2.6, 0.28);
+    await this.app.commander.say(LINES.aresReveal, { interrupt: true });
+    st.setOrbit(null);
+    this.hud!.classList.remove('cine');
+    this.locked = false;
+  }
+
+  /** Rover backs up in front of ARES-7, cable shoots out and clamps, ARES-7 lurches free. */
+  private async latchCutscene() {
+    const st = this.stage!;
+    this.hud!.classList.add('cine');
+    const a = st.ares.group.position.clone();
+    const zone = this.pois.get('zone')!.pos;
+    const dir = new THREE.Vector3(zone.x - a.x, 0, zone.z - a.z).normalize();
+    const goal = a.clone().addScaledVector(dir, 2.4 + 0.8 + 1.7);
+    const yaw = Math.atan2(dir.x, dir.z);
+    st.setOrbit(a.clone().addScaledVector(dir, 2.5), 9, 3, 0.18);
+    this.showProgress('Positioning for tow');
+    const p0 = st.roverPos.clone(), y0 = st.roverYaw;
+    const dy = Math.atan2(Math.sin(yaw - y0), Math.cos(yaw - y0));
+    await new Promise<void>((resolve) => {
+      const t0 = performance.now();
+      const off = this.app.engine.onTick(() => {
+        const k = Math.min(1, (performance.now() - t0) / 2200), e = k * k * (3 - 2 * k);
+        st.roverPos.x = THREE.MathUtils.lerp(p0.x, goal.x, e);
+        st.roverPos.z = THREE.MathUtils.lerp(p0.z, goal.z, e);
+        st.roverYaw = y0 + dy * e;
+        if (k >= 1) { off(); resolve(); }
+      });
+    });
+    this.showProgress('Deploying tow cable');
+    this.app.sfx.servo(1.4);
+    await st.latch();
+    this.app.sfx.error(); // metallic clank
+    this.app.sfx.success();
+    this.app.link.buzz([60, 40, 120]);
+    this.hideProgress();
+    st.setOrbit(null);
+    this.hud!.classList.remove('cine');
+    this.phase = 'emergency-tow';
+    this.setTarget('zone');
+    void this.app.commander.say(LINES.latched, { interrupt: true });
   }
 
   private async recover() {
     const st = this.stage!;
     this.phase = 'recovery';
     this.timer = null;
-    st.removeBeacon('zone');
+    this.locked = true;
+    st.speed = 0;
     this.hud!.classList.remove('alert');
+    this.hud!.classList.add('cine');
     this.paintObjective();
     this.app.sfx.confirm();
     const lines = this.app.commander.say(LINES.recovering, { interrupt: true });
-    // Cinematic: orbit ARES-7 while a wind gust clears its panels and the storm subsides.
-    this.locked = true;
-    st.focus = st.ares.group.position.clone();
+    st.setOrbit(st.ares.group.position, 10, 3.5, 0.2);
     const t0 = performance.now();
     await new Promise<void>((resolve) => {
       const off = this.app.engine.onTick(() => {
-        const k = Math.min(1, (performance.now() - t0) / 9000);
-        st.ares.setDust(1 - THREE.MathUtils.smoothstep(k, 0.1, 0.75));
-        st.storm = Math.min(st.storm, 1 - k);
+        const k = Math.min(1, (performance.now() - t0) / 10000);
+        st.storm = Math.min(st.storm, 1 - THREE.MathUtils.smoothstep(k, 0, 0.7));
+        st.stormFront = st.storm;
+        st.ares.setDust(1 - THREE.MathUtils.smoothstep(k, 0.15, 0.6));
+        st.ares.setWings(THREE.MathUtils.smoothstep(k, 0.45, 0.9));
+        st.rayStrength = 0.7 + Math.sin(Math.min(1, k * 1.4) * Math.PI) * 1.6; // sunlight breaks through
+        this.app.sfx.setWind(st.storm);
         if (k >= 1) { off(); resolve(); }
       });
     });
@@ -349,11 +428,14 @@ export class MarsMission implements Mission {
     this.app.sfx.success();
     this.app.link.buzz([40, 60, 40]);
     await lines;
-    st.focus = null;
-    this.locked = false;
     await this.app.commander.say(LINES.restored);
     if (this.disposed) return;
+    st.unlatch();
+    st.setOrbit(null);
+    st.rayStrength = 0.8;
+    this.hud!.classList.remove('cine');
     this.phase = 'final';
+    this.locked = false;
     st.addSpecimen('s3', 'sedimentary', this.pois.get('s3')!.pos);
     this.setTarget('s3');
     void this.app.commander.say(LINES.sample3);
@@ -363,6 +445,7 @@ export class MarsMission implements Mission {
     if (this.phase === 'failed') return;
     this.phase = 'failed';
     this.locked = true;
+    this.app.input.releasePointer();
     this.app.sfx.error();
     this.app.link.buzz([300, 100, 300]);
     void this.app.commander.say({ text: LINES.fail, mood: 'alert' }, { interrupt: true });
@@ -371,7 +454,7 @@ export class MarsMission implements Mission {
         <div class="panel brackets">
           <div class="eyebrow" style="color:var(--c-orange)">Reserves critical</div>
           <h2>Recovery window lost</h2>
-          <p>Your rover’s batteries or the time window ran out before ARES-7 reached the ridge. Try a shorter route: the green beacon shows the recovery ridge.</p>
+          <p>Your batteries or the time window ran out before ARES-7 reached the ridge. Follow the marker and keep moving.</p>
           <div class="brief-actions">
             <button class="btn primary retry">Retry from emergency</button>
             <button class="btn ghost quit">Abort to mission select</button>
@@ -386,18 +469,19 @@ export class MarsMission implements Mission {
   private retry() {
     const st = this.stage!;
     const s = this.snapshot!;
+    st.unlatch();
     st.placeRover(s.pos, s.yaw);
     this.battery = s.battery;
     this.timer = EMERGENCY_SECONDS;
-    this.aresLinked = false;
-    st.removeBeacon('zone');
     const ares = this.pois.get('ares')!;
     st.ares.group.position.copy(ares.pos);
-    st.ares.setDust(1);
+    st.ares.group.position.y = st.terrain.heightAt(ares.pos.x, ares.pos.z);
+    st.ares.body.rotation.set(0.16, 0, -0.2);
+    st.ares.body.position.y = -0.28;
     this.phase = 'emergency-find';
     this.locked = false;
     this.setTarget('ares');
-    void this.app.commander.say({ text: 'Retrying. Locate ARES-7, marked in orange.', mood: 'alert' }, { interrupt: true });
+    void this.app.commander.say({ text: 'Retrying. Locate ARES-7 and attach the tow cable.', mood: 'alert' }, { interrupt: true });
   }
 
   private async complete() {
@@ -415,84 +499,61 @@ export class MarsMission implements Mission {
     const st = this.stage;
     if (!st || !this.hud || this.paused) return;
     const { input } = this.app;
-    const emergency = this.phase === 'emergency-find' || this.phase === 'emergency-lead';
+    const emergency = this.phase === 'emergency-find' || this.phase === 'emergency-tow';
 
-    // Drive
     const l = input.stickL();
-    let climb = 0;
-    if (!this.locked && this.battery > 0) {
-      climb = st.drive(l.y, l.x, dt).climb;
-    } else {
-      st.drive(0, 0, dt);
+    if (!this.locked && this.battery > 0 && !st.inCutscene) st.drive(l.y, l.x, dt);
+    else if (!st.inCutscene) st.drive(0, 0, dt);
+    if (st.blocked && performance.now() - this.lastWarn > 5000) {
+      this.lastWarn = performance.now();
+      this.flashWarning('TERRAIN TOO STEEP');
     }
-    if (st.blocked && performance.now() - this.lastSteepWarn > 6000) {
-      this.lastSteepWarn = performance.now();
-      this.flashWarning(climb > 20 ? 'SLOPE TOO STEEP' : 'OBSTACLE');
-      if (!this.app.commander.busy) void this.app.commander.say(LINES.steep);
+    if (st.sandiness > 0.6 && Math.abs(st.speed) > 1 && !this.flags.has('sand') && !this.app.commander.busy && this.phase === 'explore') {
+      this.flags.add('sand');
+      void this.app.commander.say(LINES.sand);
     }
 
-    // Camera
+    // Look: captured mouse (free look), right stick / arrows, wheel distance.
     const r = input.stickR();
     const m = input.consumeMouse();
-    st.orbit(-r.x * dt * 1.8 - m.dx * 0.005, r.y * dt * 1.2 + m.dy * 0.004, m.wheel);
+    if (!st.inCutscene) st.look(-r.x * dt * 1.9 - m.dx * 0.0032, r.y * dt * 1.2 - m.dy * 0.0026, m.wheel);
+    st.autoRecentre = !input.pointerLocked;
+    this.hud.classList.toggle('show-lock-hint', !input.pointerLocked && this.app.mode === 'device' && !st.inCutscene && !this.locked);
 
-    // Power: MMRTG trickle-charges; driving draws more than it supplies.
+    // Power: MMRTG trickle; driving draws more than it supplies.
     const load = Math.abs(st.speed) / MAX_SPEED;
-    const drain = (emergency ? 0.0045 : 0.0018) * load + (emergency ? 0.0006 : 0.0001);
+    const drain = (emergency ? 0.0042 : 0.0016) * load * (st.towing ? 1.3 : 1) + (emergency ? 0.0005 : 0.0001);
     const charge = load < 0.05 && !emergency ? 0.0006 : 0;
     this.battery = THREE.MathUtils.clamp(this.battery - drain * dt + charge * dt, 0, 1);
 
-    // Emergency: storm ramps, timer, ARES-7 follow, zone check.
     if (emergency) {
-      st.storm = Math.min(1, st.storm + dt / 12);
-      this.app.sfx.setWind(st.storm);
-      if (this.timer !== null) this.timer = Math.max(0, this.timer - dt);
+      // storm front rolls in, then engulfs
+      st.stormFront = Math.min(1, st.stormFront + dt / 14);
+      if (st.stormFront > 0.65) st.storm = Math.min(1, st.storm + dt / 10);
+      this.app.sfx.setWind(Math.max(st.storm, st.stormFront * 0.4));
+      if (this.timer !== null && !st.inCutscene && !this.locked) this.timer = Math.max(0, this.timer - dt);
       if (this.timer === 0 || this.battery <= 0) this.fail();
-      if (!this.saidStormFacts && this.timer !== null && this.timer < EMERGENCY_SECONDS - 26 && !this.app.commander.busy) {
-        this.saidStormFacts = true;
+      if (!this.flags.has('storm') && this.timer !== null && this.timer < EMERGENCY_SECONDS - 28 && !this.app.commander.busy) {
+        this.flags.add('storm');
         void this.app.commander.say([LINES.stormFact, LINES.mmrtg]);
       }
-    } else if (this.phase !== 'recovery') {
-      this.app.sfx.setWind(st.storm * 0.5);
     }
-    if (this.phase === 'emergency-find' && this.aresDist() < 22 && !this.app.commander.busy && !this.hud.dataset.aresHint) {
-      this.hud.dataset.aresHint = '1';
-      void this.app.commander.say(LINES.aresNear);
+    if (this.phase === 'emergency-find' && !this.flags.has('reveal') && this.distTo(st.ares.group.position) < 32) {
+      this.flags.add('reveal');
+      void this.revealCutscene();
     }
-    if (this.aresLinked && this.phase === 'emergency-lead') {
-      // pull the chase camera back so the convoy (rover + ARES-7 behind it) is in frame
-      st.camDist += (Math.max(st.camDist, 19) - st.camDist) * Math.min(1, dt * 1.5);
-      st.camPitch += (Math.max(st.camPitch, 0.42) - st.camPitch) * Math.min(1, dt * 1.5);
-      this.updateFollow(dt);
+    if (this.phase === 'emergency-tow') {
       const zone = this.pois.get('zone')!.pos;
-      const a = st.ares.group.position;
-      if (Math.hypot(a.x - zone.x, a.z - zone.z) < ZONE_RADIUS) void this.recover();
+      if (Math.hypot(st.ares.group.position.x - zone.x, st.ares.group.position.z - zone.z) < ZONE_RADIUS) void this.recover();
     }
     st.ares.setStatus(this.phase === 'final' || this.phase === 'complete' ? 0x5dffa8 : 0xffaa33, this.phase !== 'final' && this.phase !== 'complete', performance.now() / 1000);
 
-    if (!this.saidSpeedNote && st.distance > 40 && !this.app.commander.busy && this.phase === 'explore') {
-      this.saidSpeedNote = true;
+    if (!this.flags.has('speed') && st.distance > 60 && !this.app.commander.busy && this.phase === 'explore') {
+      this.flags.add('speed');
       void this.app.commander.say(LINES.speedNote);
     }
-
     this.paintHud();
     this.sendPhone();
-  }
-
-  /** ARES-7 follows the rover's own path ~8 m behind (no pathfinding needed). */
-  private updateFollow(dt: number) {
-    const st = this.stage!;
-    const p = st.roverPos;
-    const last = this.breadcrumbs[this.breadcrumbs.length - 1];
-    if (!last || last.distanceTo(p) > 1.2) this.breadcrumbs.push(p.clone());
-    if (this.breadcrumbs.length > 600) this.breadcrumbs.shift();
-    let acc = 0, target = this.breadcrumbs[0];
-    for (let i = this.breadcrumbs.length - 1; i > 0; i--) {
-      acc += this.breadcrumbs[i].distanceTo(this.breadcrumbs[i - 1]);
-      if (acc >= 8) { target = this.breadcrumbs[i - 1]; break; }
-    }
-    const far = this.aresDist() > 20;
-    st.moveAres(target, dt, MAX_SPEED * (far ? 1.4 : 1.05));
   }
 
   // ─────────────────────────────────────────── HUD
@@ -501,42 +562,43 @@ export class MarsMission implements Mission {
     const el = html(`
       <section class="mhud passthrough">
         <div class="storm-veil"></div>
-        <header class="mh-top">
-          <div class="mh-id">
-            <div class="eyebrow">Perseverance-class rover · simulation</div>
-            <div class="mh-name">JEZERO CRATER · MARS</div>
-            <div class="mh-state mono"><i></i><span>Systems nominal</span></div>
+        <div class="letterbox top"></div><div class="letterbox bottom"></div>
+        <div class="wp"><div class="wp-icon"></div><div class="wp-label mono"></div><div class="wp-dist mono"></div><div class="wp-arrow"></div></div>
+        <div class="wp ares-wp"><div class="wp-icon"></div><div class="wp-label mono">ARES-7</div></div>
+
+        <div class="mh-tl">
+          <div class="minimap"><canvas width="220" height="220"></canvas><span class="mm-n mono">N</span></div>
+          <div class="obj-block">
+            <div class="obj-head mono">Objective</div>
+            <div class="obj-text"></div>
+            <div class="obj-sub mono"></div>
           </div>
-          <div class="mh-center">
-            <div class="mh-obj"></div>
-            <div class="compass mono"><div class="compass-strip"></div><b class="compass-needle"></b></div>
+        </div>
+
+        <div class="mh-top">
+          <div class="compass mono"><div class="compass-strip"></div><b class="compass-needle"></b></div>
+          <div class="timer mono" hidden><span>Recovery window</span><b>3:00</b></div>
+          <div class="alert-banner mono"><b>⚠ Priority transmission</b><span>Dust storm · scout rover ARES-7 without power</span><em>Simulated incident</em></div>
+        </div>
+
+        <div class="mh-br">
+          <div class="status-row mono"><span class="view-mode">CHASE CAM</span><span class="state">IDLE</span></div>
+          <div class="batt"><div class="batt-label mono"><span>Battery</span><b class="batt-v">100%</b></div><div class="batt-bar"><b></b></div></div>
+          <div class="tele-row mono">
+            <div><label>Speed</label><b class="spd">0.0</b><i>m/s</i></div>
+            <div><label>Elevation</label><b class="elev">-</b><i>m</i></div>
+            <div><label>Heading</label><b class="hdg">000°</b></div>
           </div>
-          <div class="mh-power panel">
-            <div class="eyebrow">Battery</div>
-            <div class="batt-row"><div class="batt-bar"><b></b></div><span class="mono batt-v">100%</span></div>
-            <div class="mono pwr-src">MMRTG · 110 W</div>
-            <div class="timer mono" hidden><span>RECOVERY WINDOW</span><b>2:30</b></div>
-          </div>
-        </header>
-        <div class="alert-banner mono"><b>⚠ PRIORITY TRANSMISSION</b><span>Dust storm · scout rover ARES-7 without power</span><em>Simulated incident</em></div>
-        <aside class="mh-left panel mono">
-          <div class="tele"><label>Speed</label><b class="spd">0.0</b><span>m/s</span></div>
-          <div class="tele"><label>Heading</label><b class="hdg">000°</b></div>
-          <div class="tele"><label>Elevation (real)</label><b class="elev">-</b><span>m</span></div>
-          <div class="tele"><label>Odometer</label><b class="odo">0</b><span>m</span></div>
-          <div class="tele-note">Real Perseverance top speed ≈ 0.04 m/s</div>
-        </aside>
-        <aside class="mh-right">
-          <div class="minimap panel"><canvas width="200" height="200"></canvas><div class="mm-cap mono">HiRISE · north up</div></div>
-          <div class="inventory panel">
-            <div class="eyebrow">Sample cache</div>
-            <div class="slots"></div>
-          </div>
-        </aside>
+          <div class="slots"></div>
+        </div>
+
+        <div class="notify mono"></div>
         <div class="prompt mono"><span class="kbd">${device ? 'E' : '●'}</span><b></b></div>
         <div class="progress-pill mono"><i></i><span></span></div>
         <div class="warn mono"></div>
-        ${device ? `<footer class="mh-keys mono"><span><b class="kbd">W</b><b class="kbd">A</b><b class="kbd">S</b><b class="kbd">D</b> drive</span><span><b class="kbd">Drag</b> look</span><span><b class="kbd">Wheel</b> distance</span><span><b class="kbd">E</b> interact</span><span><b class="kbd">Esc</b> pause</span></footer>` : ''}
+        <div class="lock-hint mono">Click to control the camera · <span class="kbd">V</span> mast camera</div>
+        <div class="fp-reticle"></div>
+        ${device ? `<footer class="mh-keys mono"><span><b class="kbd">W</b><b class="kbd">A</b><b class="kbd">S</b><b class="kbd">D</b> drive</span><span><b class="kbd">Mouse</b> look</span><span><b class="kbd">V</b> view</span><span><b class="kbd">E</b> interact</span><span><b class="kbd">Esc</b> pause</span></footer>` : ''}
         <div class="sample-card panel"></div>
       </section>`);
     this.hud = el;
@@ -545,30 +607,46 @@ export class MarsMission implements Mission {
     return el;
   }
 
-  private objectiveText() {
+  private objectiveText(): [string, string] {
     switch (this.phase) {
-      case 'explore': return this.collected.length === 0 ? 'Collect sample 1 · Igneous rock' : 'Collect sample 2 · Hematite-bearing rock';
-      case 'emergency-find': return 'EMERGENCY · Locate scout rover ARES-7';
-      case 'emergency-lead': return 'EMERGENCY · Lead ARES-7 to the recovery ridge';
-      case 'recovery': return 'Recovery in progress · cleaning event';
-      case 'final': return 'Collect sample 3 · Sedimentary rock';
-      case 'complete': return 'Mission complete';
-      case 'failed': return 'Recovery failed';
+      case 'intro': return ['Stand by', ''];
+      case 'explore': return this.collected.length === 0 ? ['Collect the igneous rock sample', 'Follow the channel north'] : ['Collect the hematite-bearing rock', 'Sample 2 of 3'];
+      case 'emergency-find': return ['Locate scout rover ARES-7', 'Attach the tow cable'];
+      case 'emergency-tow': return ['Tow ARES-7 to the recovery ridge', 'Sunlit high ground'];
+      case 'recovery': return ['Recovery in progress', 'Cleaning event'];
+      case 'final': return ['Collect the sedimentary rock', 'Layered outcrop · sample 3 of 3'];
+      case 'complete': return ['Mission complete', ''];
+      case 'failed': return ['Recovery failed', ''];
     }
   }
 
   private paintObjective() {
     if (!this.hud) return;
-    $(this.hud, '.mh-obj').textContent = this.objectiveText();
+    const [t, s] = this.objectiveText();
+    const el = $(this.hud, '.obj-text');
+    if (el.textContent !== t) {
+      el.textContent = t;
+      const blk = $(this.hud, '.obj-block');
+      blk.classList.remove('new');
+      void blk.offsetWidth;
+      blk.classList.add('new');
+    }
+    $(this.hud, '.obj-sub').textContent = s;
   }
 
   private paintInventory() {
     if (!this.hud) return;
     const kinds: SampleKind[] = ['igneous', 'hematite', 'sedimentary'];
-    $(this.hud, '.slots').innerHTML = kinds.map((k, i) => {
-      const got = this.collected.includes(k);
-      return `<div class="slot ${got ? 'full' : ''}"><i>${i + 1}</i><span>${got ? escapeHtml(SAMPLES[k].name) : 'Empty tube'}</span></div>`;
-    }).join('');
+    $(this.hud, '.slots').innerHTML = kinds.map((k, i) => `<div class="slot ${this.collected.includes(k) ? 'full' : ''}" title="${SAMPLES[k].name}"><i>${i + 1}</i></div>`).join('') + '<span class="mono slots-label">Sample tubes</span>';
+  }
+
+  private targetPos(): { pos: THREE.Vector3; label: string } | null {
+    const st = this.stage!;
+    if (!this.targetId || this.locked && this.phase !== 'emergency-find') return null;
+    const p = this.pois.get(this.targetId)!;
+    if (p.kind === 'ares') return { pos: st.ares.group.position, label: 'ARES-7' };
+    if (p.kind === 'zone') return { pos: p.pos, label: 'Recovery ridge' };
+    return { pos: p.pos, label: 'Sample site' };
   }
 
   private paintHud() {
@@ -578,117 +656,143 @@ export class MarsMission implements Mission {
     $(hud, '.spd').textContent = Math.abs(st.speed).toFixed(1);
     $(hud, '.hdg').textContent = `${String(Math.round(heading)).padStart(3, '0')}°`;
     $(hud, '.elev').textContent = Math.round(st.terrain.realElevationAt(st.roverPos.x, st.roverPos.z)).toLocaleString();
-    $(hud, '.odo').textContent = Math.round(st.distance).toLocaleString();
-    const b = Math.round(this.battery * 100);
     $(hud, '.batt-bar b').style.transform = `scaleX(${this.battery.toFixed(3)})`;
-    $(hud, '.batt-v').textContent = `${b}%`;
+    $(hud, '.batt-v').textContent = `${Math.round(this.battery * 100)}%`;
     hud.classList.toggle('low-batt', this.battery < 0.25);
+    $(hud, '.state').textContent = st.towing ? 'TOWING' : this.locked ? 'ARM OPS' : Math.abs(st.speed) > 0.2 ? (st.sandiness > 0.5 ? 'DRIVING · SAND' : 'DRIVING') : 'IDLE';
     const timerEl = $(hud, '.timer');
     timerEl.hidden = this.timer === null;
     if (this.timer !== null) {
       $(timerEl, 'b').textContent = fmtTime(this.timer);
       timerEl.classList.toggle('critical', this.timer < 30);
     }
-    $(hud, '.mh-state span').textContent = this.locked ? 'Arm operations' : Math.abs(st.speed) > 0.2 ? 'Driving' : 'Idle';
-    hud.style.setProperty('--storm', st.storm.toFixed(3));
+    hud.style.setProperty('--storm', Math.max(st.storm, st.stormFront * 0.25).toFixed(3));
 
     // compass strip
-    const strip = $(hud, '.compass-strip');
     const marks: string[] = [];
     for (const [deg, label] of [[0, 'N'], [45, 'NE'], [90, 'E'], [135, 'SE'], [180, 'S'], [225, 'SW'], [270, 'W'], [315, 'NW']] as const) {
       const rel = ((deg - heading + 540) % 360) - 180;
-      if (Math.abs(rel) < 80) marks.push(`<span class="${label.length === 1 ? 'major' : ''}" style="left:${50 + rel * 0.6}%">${label}</span>`);
+      if (Math.abs(rel) < 75) marks.push(`<span class="${label.length === 1 ? 'major' : ''}" style="left:${50 + rel * 0.65}%">${label}</span>`);
     }
-    const tp = this.targetPoi();
+    for (let d = 0; d < 360; d += 15) {
+      const rel = ((d - heading + 540) % 360) - 180;
+      if (Math.abs(rel) < 75 && d % 45) marks.push(`<i style="left:${50 + rel * 0.65}%"></i>`);
+    }
+    const tp = this.targetPos();
     if (tp) {
       const tdeg = (THREE.MathUtils.radToDeg(Math.atan2(tp.pos.x - st.roverPos.x, -(tp.pos.z - st.roverPos.z))) + 360) % 360;
-      const rel = THREE.MathUtils.clamp(((tdeg - heading + 540) % 360) - 180, -80, 80);
-      marks.push(`<em style="left:${50 + rel * 0.6}%;color:${tp.color}">◆ ${this.trackDist(tp).toFixed(0)} m</em>`);
+      const rel = THREE.MathUtils.clamp(((tdeg - heading + 540) % 360) - 180, -75, 75);
+      marks.push(`<em style="left:${50 + rel * 0.65}%">◆</em>`);
     }
-    strip.innerHTML = marks.join('');
+    $(hud, '.compass-strip').innerHTML = marks.join('');
 
-    // prompt
+    // COD-style waypoint marker (clamped to screen edges, arrow when off-screen)
+    const wp = $(hud, '.wp');
+    wp.classList.toggle('show', !!tp && !st.inCutscene);
+    if (tp) {
+      const world = tp.pos.clone().add(new THREE.Vector3(0, 2.4, 0));
+      const s = st.toScreen(world);
+      let x = s.x, y = s.y;
+      const off = s.behind || x < 0.04 || x > 0.96 || y < 0.08 || y > 0.9;
+      if (s.behind) { x = 1 - x; y = 0.9; }
+      x = THREE.MathUtils.clamp(x, 0.05, 0.95); y = THREE.MathUtils.clamp(y, 0.1, 0.88);
+      wp.style.transform = `translate(${(x * window.innerWidth).toFixed(1)}px, ${(y * window.innerHeight).toFixed(1)}px)`;
+      wp.classList.toggle('offscreen', off);
+      $(wp, '.wp-label').textContent = tp.label;
+      $(wp, '.wp-dist').textContent = `${Math.round(this.distTo(tp.pos))} m`;
+      if (off) $(wp, '.wp-arrow').style.transform = `rotate(${Math.atan2(y - 0.5, x - 0.5)}rad)`;
+    }
+    // While towing, keep a small tag on ARES-7 so the player sees the convoy
+    const aw = $(hud, '.ares-wp');
+    const showAres = (this.phase === 'emergency-tow') && !st.inCutscene;
+    aw.classList.toggle('show', showAres);
+    if (showAres) {
+      const s = st.toScreen(st.ares.group.position.clone().add(new THREE.Vector3(0, 2.6, 0)));
+      aw.classList.toggle('hidden', s.behind);
+      aw.style.transform = `translate(${(s.x * window.innerWidth).toFixed(1)}px, ${(s.y * window.innerHeight).toFixed(1)}px)`;
+    }
+
     const action = this.currentAction();
     hud.classList.toggle('can-act', !!action);
     if (action) $(hud, '.prompt b').textContent = action;
-
     this.drawMinimap();
-  }
-
-  private targetPoi() {
-    if (this.phase === 'emergency-find') {
-      const p = this.pois.get('ares')!;
-      return { ...p, pos: this.stage!.ares.group.position };
-    }
-    return this.targetId ? this.pois.get(this.targetId) ?? null : null;
-  }
-  private trackDist(p: { pos: THREE.Vector3 }) {
-    const r = this.stage!.roverPos;
-    return Math.hypot(p.pos.x - r.x, p.pos.z - r.z);
   }
 
   private drawMinimap() {
     const st = this.stage!;
     const cv = $<HTMLCanvasElement>(this.hud!, '.minimap canvas');
     const g = cv.getContext('2d')!;
-    const W = cv.width, span = 420; // metres shown
+    const W = cv.width, span = 240;
     const size = st.terrain.size;
+    g.save();
+    g.clearRect(0, 0, W, W);
+    g.beginPath(); g.arc(W / 2, W / 2, W / 2 - 1, 0, Math.PI * 2); g.clip();
     g.fillStyle = '#1a0f09';
     g.fillRect(0, 0, W, W);
-    const img = this.minimapImg as HTMLImageElement | null;
-    if (img && (img as HTMLImageElement).width) {
+    const img = this.minimapImg;
+    if (img?.width) {
       const px = img.width / size;
       const cx = (st.roverPos.x + size / 2) * px, cz = (st.roverPos.z + size / 2) * px;
-      g.globalAlpha = 0.95;
       g.drawImage(img, cx - (span / 2) * px, cz - (span / 2) * px, span * px, span * px, 0, 0, W, W);
-      g.globalAlpha = 1;
-      g.fillStyle = `rgba(150,70,30,${0.28 + st.storm * 0.4})`;
       g.globalCompositeOperation = 'multiply';
+      g.fillStyle = `rgba(170,90,45,${0.5 + st.storm * 0.3})`;
       g.fillRect(0, 0, W, W);
       g.globalCompositeOperation = 'source-over';
     }
     const toMap = (p: THREE.Vector3) => [W / 2 + ((p.x - st.roverPos.x) / span) * W, W / 2 + ((p.z - st.roverPos.z) / span) * W];
-    const tp = this.targetPoi();
-    const dots: { pos: THREE.Vector3; color: string }[] = [];
-    if (tp) dots.push(tp);
-    if (this.aresLinked || this.phase === 'emergency-find') dots.push({ pos: st.ares.group.position, color: '#ff7a2f' });
-    if (this.phase === 'emergency-lead') { const z = this.pois.get('zone')!; dots.push(z); }
-    for (const d of dots) {
-      let [x, y] = toMap(d.pos);
-      x = THREE.MathUtils.clamp(x, 6, W - 6); y = THREE.MathUtils.clamp(y, 6, W - 6);
-      g.fillStyle = d.color;
-      g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill();
+    const tp = this.targetPos();
+    if (tp) {
+      let [x, y] = toMap(tp.pos);
+      const dx = x - W / 2, dy = y - W / 2, d = Math.hypot(dx, dy), R = W / 2 - 10;
+      if (d > R) { x = W / 2 + (dx / d) * R; y = W / 2 + (dy / d) * R; }
+      g.fillStyle = '#ffd36a';
+      g.save(); g.translate(x, y); g.rotate(Math.PI / 4); g.fillRect(-5, -5, 10, 10); g.restore();
     }
-    // rover arrow
+    if (st.ares.group.visible && this.phase !== 'complete') {
+      const [x, y] = toMap(st.ares.group.position);
+      g.fillStyle = '#ff7a2f';
+      g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.fill();
+    }
+    // view cone + rover arrow
     const f = st.forward;
-    g.save();
     g.translate(W / 2, W / 2);
-    g.rotate(Math.atan2(f.x, -f.z));
+    const camAng = Math.atan2(f.x, -f.z) + (st.view === 'fp' ? -st.lookYaw : 0);
+    g.rotate(camAng);
+    const grd = g.createLinearGradient(0, 0, 0, -60);
+    grd.addColorStop(0, 'rgba(255,255,255,0.25)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(-30, -60); g.lineTo(30, -60); g.closePath(); g.fill();
     g.fillStyle = '#fff';
-    g.beginPath(); g.moveTo(0, -8); g.lineTo(5.5, 6); g.lineTo(0, 3); g.lineTo(-5.5, 6); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(0, -8); g.lineTo(6, 6); g.lineTo(0, 3); g.lineTo(-6, 6); g.closePath(); g.fill();
     g.restore();
   }
 
   private sendPhone() {
     const st = this.stage!;
-    const tp = this.targetPoi();
+    const tp = this.targetPos();
     let bearing: number | null = null, distance: number | null = null;
     if (tp) {
       const ty = Math.atan2(tp.pos.x - st.roverPos.x, tp.pos.z - st.roverPos.z);
       bearing = Math.round(Math.atan2(Math.sin(st.roverYaw - ty), Math.cos(st.roverYaw - ty)) * 100) / 100;
-      distance = Math.round(this.trackDist(tp));
+      distance = Math.round(this.distTo(tp.pos));
     }
-    const action = this.currentAction();
     this.app.link.hud({
-      objective: this.objectiveText(),
+      objective: this.objectiveText()[0],
       battery: Math.round(this.battery * 100) / 100,
       timer: this.timer === null ? null : Math.ceil(this.timer),
       bearing, distance,
-      prompt: action,
-      alert: this.phase === 'emergency-find' || this.phase === 'emergency-lead',
+      prompt: this.currentAction(),
+      alert: this.phase === 'emergency-find' || this.phase === 'emergency-tow',
     });
   }
 
+  private notify(text: string) {
+    const n = $(this.hud!, '.notify');
+    n.textContent = text;
+    n.classList.remove('show');
+    void n.offsetWidth;
+    n.classList.add('show');
+  }
   private flashWarning(text: string) {
     const w = $(this.hud!, '.warn');
     w.textContent = `⚠ ${text}`;
@@ -696,7 +800,6 @@ export class MarsMission implements Mission {
     void w.offsetWidth;
     w.classList.add('show');
   }
-
   private showProgress(text: string) {
     const p = $(this.hud!, '.progress-pill');
     $(p, 'span').textContent = text;
@@ -730,6 +833,7 @@ export class MarsMission implements Mission {
     const { app } = this;
     const st = this.stage!;
     app.input.pointerEnabled = false;
+    app.input.releasePointer();
     app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 02 complete', subtitle: 'Expedition report on the main screen' });
     const mins = (performance.now() - this.startTime) / 60000;
     const realHours = st.distance / 1000 / 0.152;
@@ -752,9 +856,9 @@ export class MarsMission implements Mission {
           <div class="report-figs">${cards}</div>
           <div class="report-row">
             <figure class="tube panel"><img src="${SAMPLE_TUBE.image}" alt=""><figcaption>${escapeHtml(SAMPLE_TUBE.caption)}</figcaption></figure>
-            <div class="jwst panel"><div class="eyebrow" style="color:var(--c-orange)">ARES-7 rescue · fictional scenario</div><p>The ARES-7 emergency is a simulated incident. It is inspired by a real problem: dust storms and dust on solar panels ended the missions of NASA’s solar-powered Spirit and Opportunity rovers, while wind “cleaning events” revived them several times. Perseverance avoids this with a nuclear power source (MMRTG).</p></div>
+            <div class="jwst panel"><div class="eyebrow" style="color:var(--c-orange)">ARES-7 rescue · fictional scenario</div><p>The ARES-7 emergency and the tow are simulated. They are inspired by a real problem: dust storms and dust on solar panels ended the missions of NASA’s solar-powered Spirit and Opportunity rovers, while wind “cleaning events” revived them several times. Perseverance avoids this with a nuclear power source (MMRTG).</p></div>
           </div>
-          <p class="report-src mono">Terrain: HiRISE DTM DTEEC_048842_1985_048908_1985 (NASA/JPL/UArizona, USGS) · relief ×1.5 · imagery: NASA/JPL-Caltech, ASU, MSSS, Cornell</p>
+          <p class="report-src mono">Terrain: HiRISE DTM DTEEC_048842_1985_048908_1985 (NASA/JPL/UArizona, USGS) · relief exaggerated ×2.2 · imagery: NASA/JPL-Caltech, ASU, MSSS, Cornell</p>
           <div class="report-actions">
             <button class="btn primary to-select">Mission select</button>
             ${jupiterReady ? '<button class="btn next">Mission 01: Jupiter</button>' : ''}
@@ -772,3 +876,4 @@ export class MarsMission implements Mission {
 }
 
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const typeHtml = (s: string) => [...s].map((c, i) => `<span style="animation-delay:${(i * 0.035).toFixed(3)}s">${c === ' ' ? '&nbsp;' : escapeHtml(c)}</span>`).join('');

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /** Seeded RNG so rock fields are identical every run. */
 export function rng(seed: number) {
@@ -17,12 +18,12 @@ export function rockGeometry(seed: number, detail = 1, flat = 0.65) {
   const r = rng(seed);
   const g = new THREE.IcosahedronGeometry(1, detail);
   const p = g.attributes.position as THREE.BufferAttribute;
-  const offs = Array.from({ length: 6 }, () => new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize());
+  const offs = Array.from({ length: 7 }, () => new THREE.Vector3(r() - 0.5, r() - 0.5, r() - 0.5).normalize());
   const v = new THREE.Vector3();
   for (let i = 0; i < p.count; i++) {
     v.fromBufferAttribute(p, i);
     let d = 1;
-    for (const o of offs) d += Math.max(0, v.dot(o)) * (r() * 0.08 + 0.18) - 0.06;
+    for (const o of offs) d += Math.max(0, v.dot(o)) * (r() * 0.08 + 0.2) - 0.07;
     v.multiplyScalar(d);
     v.y *= flat;
     p.setXYZ(i, v.x, v.y, v.z);
@@ -31,66 +32,15 @@ export function rockGeometry(seed: number, detail = 1, flat = 0.65) {
   return g;
 }
 
-/** Vertical light beam + pulsing ground ring used for objectives (visible through the storm). */
-export function createBeacon(color: number) {
-  const group = new THREE.Group();
-  const beamMat = new THREE.ShaderMaterial({
-    uniforms: { color: { value: new THREE.Color(color) }, time: { value: 0 }, intensity: { value: 1 } },
-    vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-    fragmentShader: /* glsl */ `
-      uniform vec3 color; uniform float time; uniform float intensity; varying vec2 vUv;
-      void main(){
-        float a = pow(1.0 - vUv.y, 2.2) * (0.55 + 0.15 * sin(time * 3.0 + vUv.y * 20.0));
-        a *= smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
-        gl_FragColor = vec4(color * 1.6, a * intensity);
-      }`,
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    toneMapped: false,
-  });
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.9, 90, 20, 1, true), beamMat);
-  beam.position.y = 45;
-  beam.frustumCulled = false;
-  const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, toneMapped: false });
-  const ring = new THREE.Mesh(new THREE.RingGeometry(2.4, 2.75, 48), ringMat);
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.25;
-  const ring2 = ring.clone();
-  ring2.material = ringMat.clone();
-  group.add(beam, ring, ring2);
-  return {
-    group,
-    update(t: number) {
-      beamMat.uniforms.time.value = t;
-      const k = (t * 0.6) % 1;
-      ring2.scale.setScalar(1 + k * 1.6);
-      (ring2.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - k);
-    },
-    setRadius(r: number) {
-      ring.scale.setScalar(r / 2.6);
-    },
-    dispose() {
-      beam.geometry.dispose();
-      beamMat.dispose();
-      ring.geometry.dispose();
-      ringMat.dispose();
-      (ring2.material as THREE.Material).dispose();
-    },
-  };
-}
-
-/** A sample specimen sitting on the ground, styled by rock type. */
+/** A sample specimen sitting on the ground, styled by rock type. Radius ≈ 0.25 m. */
 export function createSpecimen(kind: 'igneous' | 'hematite' | 'sedimentary') {
   const g = new THREE.Group();
   if (kind === 'sedimentary') {
-    // stacked thin slabs: visible layering
     const cols = [0xb07850, 0x9a6440, 0xc08a60, 0x8a5a3c, 0xa87048];
     for (let i = 0; i < 5; i++) {
-      const slab = new THREE.Mesh(rockGeometry(40 + i, 1, 0.18), new THREE.MeshStandardMaterial({ color: cols[i], roughness: 0.95 }));
-      slab.scale.set(1.1 - i * 0.12, 0.9, 0.95 - i * 0.1);
-      slab.position.y = i * 0.15;
+      const slab = new THREE.Mesh(rockGeometry(40 + i, 1, 0.2), new THREE.MeshStandardMaterial({ color: cols[i], roughness: 0.95 }));
+      slab.scale.set(0.3 - i * 0.03, 0.24, 0.26 - i * 0.025);
+      slab.position.y = 0.04 + i * 0.045;
       slab.rotation.y = i * 0.3;
       slab.castShadow = true;
       g.add(slab);
@@ -98,19 +48,18 @@ export function createSpecimen(kind: 'igneous' | 'hematite' | 'sedimentary') {
   } else {
     const color = kind === 'igneous' ? 0x2d2a28 : 0x7a3e22;
     const main = new THREE.Mesh(rockGeometry(kind === 'igneous' ? 11 : 23, 2, 0.7), new THREE.MeshStandardMaterial({ color, roughness: kind === 'igneous' ? 0.7 : 0.9 }));
-    main.scale.setScalar(0.7);
-    main.position.y = 0.25;
+    main.scale.setScalar(0.24);
+    main.position.y = 0.1;
     main.castShadow = true;
     g.add(main);
     if (kind === 'hematite') {
-      // "blueberries": small dark grey spherules weathering out of the rock
       const r = rng(5);
       const berryMat = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.5, metalness: 0.2 });
-      const berry = new THREE.SphereGeometry(0.05, 10, 8);
-      for (let i = 0; i < 26; i++) {
+      const berry = new THREE.SphereGeometry(0.018, 8, 6);
+      for (let i = 0; i < 16; i++) {
         const b = new THREE.Mesh(berry, berryMat);
-        const a = r() * Math.PI * 2, d = 0.55 + r() * 0.5;
-        b.position.set(Math.cos(a) * d, 0.04, Math.sin(a) * d);
+        const a = r() * Math.PI * 2, d = 0.2 + r() * 0.12;
+        b.position.set(Math.cos(a) * d, 0.015, Math.sin(a) * d);
         g.add(b);
       }
     }
@@ -118,67 +67,158 @@ export function createSpecimen(kind: 'igneous' | 'hematite' | 'sedimentary') {
   return g;
 }
 
-/** ARES-7: fictional solar-powered scout rover (original design, not a NASA vehicle). */
+/** Solar cell texture (dark blue cells with fine bus lines). */
+function solarCellTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 128;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#0d1a33';
+  g.fillRect(0, 0, 256, 128);
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 16; x++) {
+    const grd = g.createLinearGradient(x * 16, y * 16, x * 16 + 16, y * 16 + 16);
+    grd.addColorStop(0, '#1b2f57'); grd.addColorStop(1, '#0f1d3b');
+    g.fillStyle = grd;
+    g.fillRect(x * 16 + 1, y * 16 + 1, 14, 14);
+  }
+  g.strokeStyle = 'rgba(190,200,220,0.35)';
+  g.lineWidth = 0.6;
+  for (let y = 0; y < 8; y++) { g.beginPath(); g.moveTo(0, y * 16 + 8); g.lineTo(256, y * 16 + 8); g.stroke(); }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/**
+ * ARES-7: fictional solar-powered scout rover (original design, not a NASA vehicle).
+ * Six-wheel rocker-bogie style chassis, solar deck + two hinged wings, mast camera, HGA dish.
+ */
 export function createAres7() {
   const g = new THREE.Group();
-  const white = new THREE.MeshStandardMaterial({ color: 0xd8d2c8, roughness: 0.6, metalness: 0.1 });
-  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.6, metalness: 0.4 });
-  const gold = new THREE.MeshStandardMaterial({ color: 0xc8a050, roughness: 0.35, metalness: 0.8 });
-  const panelMat = new THREE.MeshStandardMaterial({ color: 0x9a6a46, roughness: 0.95, metalness: 0.0 });
+  const body = new THREE.Group(); // tilts when stuck
+  g.add(body);
+  const white = new THREE.MeshStandardMaterial({ color: 0xe2ddd2, roughness: 0.55, metalness: 0.1 });
+  const grey = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.5, metalness: 0.6 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x23252a, roughness: 0.7, metalness: 0.3 });
+  const gold = new THREE.MeshStandardMaterial({ color: 0xc9a14c, roughness: 0.3, metalness: 0.9 });
+  const orange = new THREE.MeshStandardMaterial({ color: 0xd8642a, roughness: 0.6 });
+  const cellTex = solarCellTexture();
+  const panelMat = new THREE.MeshStandardMaterial({ map: cellTex, color: 0xffffff, roughness: 0.3, metalness: 0.5 });
+  const dustMat = new THREE.MeshStandardMaterial({ color: 0xa8714a, roughness: 1, transparent: true, opacity: 1, depthWrite: false });
+  const mesh = (geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true; return m; };
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.45, 1.6), white);
-  body.position.y = 0.75;
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.05, 2.0), panelMat);
+  // chassis
+  body.add(mesh(new RoundedBoxGeometry(1.25, 0.42, 1.5, 3, 0.08), white, 0, 0.78, 0));
+  body.add(mesh(new THREE.BoxGeometry(1.0, 0.06, 1.3), dark, 0, 0.55, 0));
+  body.add(mesh(new THREE.BoxGeometry(0.5, 0.12, 0.04), orange, 0, 0.84, 0.76)); // ID stripe
+  for (const x of [-0.25, 0.25]) body.add(mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.05, 12).rotateX(Math.PI / 2), dark, x, 0.68, 0.77)); // hazcams
+
+  // solar deck + wings (wings hinge along the deck edges)
+  const deckW = 1.5, deckD = 1.7;
+  const deck = new THREE.Group();
   deck.position.y = 1.02;
-  // solar cell grid lines (visible once cleaned)
-  const gridMat = new THREE.MeshBasicMaterial({ color: 0x3a5a8a, transparent: true, opacity: 0, toneMapped: false });
-  const gridGeo = new THREE.PlaneGeometry(2.5, 1.9, 10, 8);
-  const grid = new THREE.Mesh(gridGeo, gridMat);
-  grid.rotation.x = -Math.PI / 2;
-  grid.position.y = 1.05;
-  (grid.material as THREE.MeshBasicMaterial).wireframe = true;
-
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 0.9, 8), dark);
-  mast.position.set(0.35, 1.45, 0.55);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.18), white);
-  head.position.set(0.35, 1.95, 0.6);
-  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.06, 12), dark);
-  lens.rotation.x = Math.PI / 2;
-  lens.position.set(0.35, 1.95, 0.7);
-  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.02, 0.06, 16), gold);
-  antenna.position.set(-0.4, 1.3, -0.5);
-  const whip = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.8, 4), dark);
-  whip.position.set(-0.55, 1.45, 0.2);
-  g.add(body, deck, grid, mast, head, lens, antenna, whip);
-
-  const wheelGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.22, 18);
-  wheelGeo.rotateZ(Math.PI / 2);
-  for (const z of [-0.65, 0, 0.65]) for (const x of [-0.85, 0.85]) {
-    const w = new THREE.Mesh(wheelGeo, dark);
-    w.position.set(x, 0.26, z);
-    g.add(w);
-    const strut = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.45, 0.06), white);
-    strut.position.set(x * 0.85, 0.52, z);
-    g.add(strut);
+  body.add(deck);
+  const deckPanel = mesh(new THREE.BoxGeometry(deckW, 0.035, deckD), panelMat);
+  const deckDust = mesh(new THREE.BoxGeometry(deckW + 0.005, 0.005, deckD + 0.005), dustMat, 0, 0.021, 0);
+  deck.add(deckPanel, deckDust);
+  const wings: THREE.Group[] = [];
+  const wingDust: THREE.Mesh[] = [deckDust];
+  for (const side of [-1, 1]) {
+    const hinge = new THREE.Group();
+    hinge.position.set(side * deckW / 2, 0, 0);
+    const p = mesh(new THREE.BoxGeometry(0.9, 0.03, deckD - 0.1), panelMat, side * 0.45, 0, 0);
+    const d = mesh(new THREE.BoxGeometry(0.905, 0.005, deckD - 0.095), dustMat, side * 0.45, 0.019, 0);
+    hinge.add(p, d);
+    hinge.rotation.z = side * 3.08; // folded flat over the deck
+    deck.add(hinge);
+    wings.push(hinge);
+    wingDust.push(d);
   }
-  const light = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffaa33, toneMapped: false }));
-  light.position.set(0.35, 2.08, 0.6);
-  g.add(light);
-  g.traverse((o) => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true; });
 
-  const dustCol = new THREE.Color(0x9a6a46), cleanCol = new THREE.Color(0x1a2a44);
+  // mast + camera head
+  const mast = new THREE.Group();
+  mast.position.set(0.42, 1.04, 0.55);
+  body.add(mast);
+  mast.add(mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.9, 10), grey, 0, 0.45, 0));
+  const head = new THREE.Group();
+  head.position.y = 0.95;
+  mast.add(head);
+  head.add(mesh(new RoundedBoxGeometry(0.36, 0.16, 0.18, 2, 0.03), white));
+  for (const x of [-0.09, 0.09]) head.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.05, 14).rotateX(Math.PI / 2), dark, x, 0, 0.1));
+  const light = mesh(new THREE.SphereGeometry(0.035, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffaa33, toneMapped: false }), 0, 0.11, -0.02);
+  head.add(light);
+
+  // high-gain dish + whip antenna
+  const dish = new THREE.Group();
+  dish.position.set(-0.45, 1.08, -0.5);
+  body.add(dish);
+  dish.add(mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.18, 8), grey, 0, 0.09, 0));
+  const plate = mesh(new THREE.SphereGeometry(0.22, 20, 8, 0, Math.PI * 2, 0, 0.6), gold, 0, 0.32, 0);
+  plate.rotation.x = Math.PI * 0.7;
+  dish.add(plate);
+  body.add(mesh(new THREE.CylinderGeometry(0.008, 0.008, 1.0, 5), dark, -0.58, 1.5, 0.35));
+
+  // rocker-bogie style legs + six treaded wheels
+  const wheelGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.2, 20, 1);
+  wheelGeo.rotateZ(Math.PI / 2);
+  const treadGeo = new THREE.TorusGeometry(0.22, 0.03, 6, 20);
+  treadGeo.rotateY(Math.PI / 2);
+  for (const side of [-1, 1]) {
+    const x = side * 0.88;
+    body.add(mesh(new THREE.BoxGeometry(0.06, 0.06, 1.45), grey, side * 0.72, 0.52, 0));
+    for (const [z, h] of [[-0.62, 0.42], [0, 0.42], [0.62, 0.42]] as const) {
+      body.add(mesh(new THREE.BoxGeometry(0.05, h, 0.05), grey, side * 0.78, 0.36, z));
+      body.add(mesh(wheelGeo, dark, x, 0.24, z));
+      body.add(mesh(treadGeo, dark, x, 0.24, z));
+      body.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.22, 10).rotateZ(Math.PI / 2), grey, x, 0.24, z));
+    }
+  }
+
   return {
     group: g,
-    /** 0 = clean, 1 = fully dust-covered. */
+    body,
+    /** World-space front tow point (where the cable clamps). */
+    hitchLocal: new THREE.Vector3(0, 0.62, 0.8),
+    /** 0 = clean panels, 1 = covered in dust. */
     setDust(d: number) {
-      panelMat.color.copy(cleanCol).lerp(dustCol, d);
-      panelMat.metalness = 0.5 * (1 - d);
-      panelMat.roughness = 0.35 + 0.6 * d;
-      gridMat.opacity = 0.6 * (1 - d);
+      for (const m of wingDust) {
+        (m.material as THREE.MeshStandardMaterial).opacity = d;
+        m.visible = d > 0.01;
+      }
+    },
+    /** 0 = wings folded over the deck, 1 = fully deployed flat. */
+    setWings(k: number) {
+      wings.forEach((w, i) => (w.rotation.z = (i === 0 ? -1 : 1) * THREE.MathUtils.lerp(3.08, 0.06, k)));
     },
     setStatus(color: number, blink: boolean, t: number) {
-      (light.material as THREE.MeshBasicMaterial).color.setHex(color);
+      ((light as THREE.Mesh).material as THREE.MeshBasicMaterial).color.setHex(color);
       light.visible = !blink || Math.sin(t * 5) > -0.2;
     },
+    lookMast(yaw: number) {
+      head.rotation.y = yaw;
+    },
   };
+}
+
+/** Sagging tow cable between two world points (rebuilt each frame from a reusable tube). */
+export class TowCable {
+  readonly mesh: THREE.Mesh;
+  private curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3());
+  extend = 0; // 0..1 animation (cable shooting out)
+
+  constructor() {
+    const mat = new THREE.MeshStandardMaterial({ color: 0xff7a2f, roughness: 0.5, metalness: 0.2, emissive: 0x3a1204 });
+    this.mesh = new THREE.Mesh(new THREE.TubeGeometry(this.curve, 24, 0.05, 8), mat);
+    this.mesh.castShadow = true;
+    this.mesh.visible = false;
+  }
+
+  update(a: THREE.Vector3, b: THREE.Vector3) {
+    const end = a.clone().lerp(b, this.extend);
+    const mid = a.clone().lerp(end, 0.5);
+    mid.y -= Math.max(0.05, 0.45 - a.distanceTo(end) * 0.04) * (0.4 + this.extend * 0.6);
+    this.curve.v0.copy(a); this.curve.v1.copy(mid); this.curve.v2.copy(end);
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = new THREE.TubeGeometry(this.curve, 24, 0.05, 8);
+    this.mesh.visible = this.extend > 0.001;
+  }
 }
