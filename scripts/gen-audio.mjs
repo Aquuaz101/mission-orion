@@ -7,6 +7,7 @@
  *   npm run gen:audio -- --only=voice|sfx|music           # one category
  *   npm run gen:audio -- --voice=<voice_id>               # different ACE voice (default: George, British)
  *   npm run gen:audio -- --force                          # regenerate files that already exist
+ *   npm run gen:audio -- --where=iss                      # only lines from one place (iss, mars, mars-rescue, jupiter, menu)
  *
  * The key can also live in .env.local (ELEVENLABS_API_KEY=...), which is git-ignored.
  * Generation is in priority order and checks the remaining credits before each request, so on the free
@@ -33,6 +34,8 @@ const DELIVERY = {
   warm: { stability: 0.48, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true, speed: 0.97 },
   tense: { stability: 0.4, similarity_boost: 0.8, style: 0.38, use_speaker_boost: true, speed: 1.0 },
   urgent: { stability: 0.34, similarity_boost: 0.8, style: 0.48, use_speaker_boost: true, speed: 1.05 },
+  // the ISS debris storm: audible worry and urgency, tighter and faster, but still a competent flight controller
+  worried: { stability: 0.28, similarity_boost: 0.8, style: 0.6, use_speaker_boost: true, speed: 1.08 },
 };
 const spoken = (l) => (l.tone ? `[${l.tone}] ${l.text}` : l.text);
 
@@ -122,6 +125,7 @@ try {
   await vite.close();
 }
 
+if (args.where) catalog = catalog.filter((l) => l.where === args.where || l.where.startsWith(`${args.where}-`));
 const totalChars = catalog.reduce((s, l) => s + l.text.length, 0);
 if (args.dry) {
   for (const l of catalog) console.log(`P${l.priority} ${l.id} [${l.where}·${l.delivery}] ${spoken(l)}`);

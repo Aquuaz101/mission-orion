@@ -11,7 +11,7 @@ import * as jup from '../missions/jupiter/script';
 import * as iss from '../missions/iss/script';
 
 /** Delivery groups → voice settings in the generator. */
-export type Delivery = 'calm' | 'tense' | 'urgent' | 'warm';
+export type Delivery = 'calm' | 'tense' | 'urgent' | 'warm' | 'worried';
 export interface CatalogLine { id: string; text: string; mood: 'normal' | 'alert'; priority: 1 | 2 | 3; where: string; tone: string; delivery: Delivery }
 
 type L = string | { text: string; mood?: 'normal' | 'alert' };
@@ -77,11 +77,17 @@ export function aceCatalog(): CatalogLine[] {
   add(1, 'iss', 'quiet awe', 'warm', I.sunrise2);
   add(1, 'iss', 'approving, warm', 'warm', I.tetherOk, I.armOk, I.footOk, I.seqOk, I.boltsDone, I.connDone, I.powerUp);
   add(1, 'iss', 'calm, helpful', 'calm', I.connWrong);
-  add(1, 'iss', 'serious, alert', 'tense', I.debris1);
-  add(1, 'iss', 'urgent, controlled', 'urgent', I.debris2, I.q6, I.impact);
-  add(1, 'iss', 'focused, tense', 'tense', I.coverOk, I.shieldOk);
-  add(1, 'iss', 'relieved, exhales', 'warm', I.allClear);
+  // the debris storm: worried and urgent, but in control (ACE is still the one keeping the astronaut alive)
+  add(1, 'iss', 'sudden concern, worried, quickening', 'worried', I.debris1);
+  add(1, 'iss', 'worried, urgent, fast, tight voice', 'worried', I.debris2);
+  add(1, 'iss', 'urgent, worried, steadying the operator', 'worried', I.coverOk);
+  add(1, 'iss', 'urgent, worried, breathless', 'worried', I.q6);
+  add(1, 'iss', 'urgent, worried, insistent', 'worried', I.shieldOk);
+  add(1, 'iss', 'alarmed, sharp breath, then urgent reassurance', 'worried', I.impact);
+  add(1, 'iss', 'shaky relief, long exhale, softening', 'warm', I.allClear);
   add(1, 'iss', 'warm, reflective', 'calm', I.wrap1, I.wrap2);
+  // wrong calls during the storm carry the same worry; the rest stay firm and dry
+  add(2, 'iss', 'urgent, worried, firm', 'worried', ...[I.wrong.finish, I.wrong.airlock, I.wrong.look, I.wrong.letGo].map((t) => ({ text: t, mood: 'alert' as const })));
   add(2, 'iss', 'firm, dry', 'tense', ...Object.values(I.wrong).map((t) => ({ text: t, mood: 'alert' as const })));
 
   // 2 · frequent situational lines

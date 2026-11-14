@@ -29,7 +29,7 @@ export const briefingLines = (mode: ControlMode) => [
   'A lithium-ion battery on the station’s port truss has failed. You will see everything through the astronaut’s helmet camera and call each step of the repair.',
   mode === 'phone'
     ? 'When a decision is needed, the options appear on your phone. Tap one to give the call.'
-    : 'When a decision is needed, press one, two or three, or click an option, to give the call.',
+    : 'When a decision is needed, press one, two or three to give the call.',
 ];
 
 export const L = {
