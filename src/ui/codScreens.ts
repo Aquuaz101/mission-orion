@@ -60,7 +60,7 @@ export function codMainMenu(sfx: Sfx, onAction: (a: CodMenuAction) => void) {
 const CARD_META: Record<string, { sub: string; date: string }> = {
   jupiter: { sub: 'Hubble Space Telescope', date: 'Launched 24 Apr 1990' },
   mars: { sub: 'Perseverance · Jezero Crater', date: 'Landed 18 Feb 2021' },
-  iss: { sub: 'Canadarm2 · Dextre', date: 'Canadarm2 installed 2001' },
+  iss: { sub: 'Spacewalk · helmet camera', date: 'Crewed since 2 Nov 2000' },
 };
 
 export interface MissionSelectUi {

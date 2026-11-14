@@ -108,3 +108,12 @@ body {
   .drive-layout .center { grid-column: 1 / -1; grid-row: 2; flex-direction: row; }
   .drive-layout .joy.fixed { width: min(42vw, 180px); }
 }
+
+/* ISS: decisions as big buttons, an ACTION button for the minigames, and a look pad */
+.iss-layout { height: 100%; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr auto; gap: 12px 14px; }
+.iss-layout .hud-strip { grid-column: 1 / -1; }
+.iss-choices { grid-column: 1; grid-row: 2 / 4; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.iss-choices.empty::before { content: 'Waiting for the next call…'; color: var(--c-muted); font-size: 13px; padding: 16px 4px; }
+.iss-choices .m-tile b { font-size: 16px; text-transform: none; letter-spacing: 0.02em; }
+.iss-layout .action { grid-column: 2; grid-row: 2; align-self: center; }
+.iss-layout .look { grid-column: 2; grid-row: 3; width: min(34vw, 150px); aspect-ratio: 1; }

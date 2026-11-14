@@ -399,6 +399,83 @@ export class Sfx {
     m.set(Math.min(1, Math.abs(speed)), sand);
   }
 
+  // ───────────────────────────────────────────── spacesuit (ISS)
+  private suitState: { stress: number; timer: number; stop: () => void } | null = null;
+  /** Inside the helmet: fan hum, breathing (faster with stress) and a heartbeat when tense. */
+  suit(on: boolean, stress = 0) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!on) { this.suitState?.stop(); this.suitState = null; return; }
+    if (this.suitState) { this.suitState.stress = stress; return; }
+    const out = ctx.createGain(); out.gain.value = 0; out.gain.setTargetAtTime(1, ctx.currentTime, 0.8); out.connect(this.bus.amb);
+    const fan = ctx.createBufferSource(); fan.buffer = this.noise; fan.loop = true;
+    const fl = ctx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = 220;
+    const fg = ctx.createGain(); fg.gain.value = 0.09;
+    fan.connect(fl).connect(fg).connect(out); fan.start();
+    const hum = ctx.createOscillator(); hum.frequency.value = 118; const hg = ctx.createGain(); hg.gain.value = 0.006; hum.connect(hg).connect(out); hum.start();
+    const state = { stress, timer: 0, stop: () => { clearTimeout(state.timer); out.gain.setTargetAtTime(0, ctx.currentTime, 0.3); setTimeout(() => { fan.stop(); hum.stop(); }, 1200); } };
+    // one breath = inhale (rising band of noise) + exhale (falling), period shortens with stress
+    const breathe = () => {
+      const s = state.stress, period = 4.4 - s * 2.3, t = ctx.currentTime;
+      const leg = (start: number, dur: number, f0: number, f1: number, peak: number) => {
+        const src = ctx.createBufferSource(); src.buffer = this.noise; src.loop = true;
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
+        bp.frequency.setValueAtTime(f0, start); bp.frequency.linearRampToValueAtTime(f1, start + dur);
+        const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, start); g.gain.exponentialRampToValueAtTime(peak, start + dur * 0.4); g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+        src.connect(bp).connect(g).connect(out); src.start(start, Math.random()); src.stop(start + dur + 0.05);
+      };
+      const loud = 0.05 + s * 0.06;
+      leg(t, period * 0.4, 700, 1300, loud);
+      leg(t + period * 0.48, period * 0.45, 1100, 500, loud * 0.85);
+      if (s > 0.35) {
+        const bpm = 70 + s * 70, beat = 60 / bpm;
+        for (let b = 0; b < period / beat; b++) for (const [off, gain] of [[0, 0.22], [0.16, 0.14]] as const) {
+          const at = t + b * beat + off;
+          const o = ctx.createOscillator(); o.frequency.setValueAtTime(62, at); o.frequency.exponentialRampToValueAtTime(38, at + 0.12);
+          const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, at); g.gain.linearRampToValueAtTime(gain * s, at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.18);
+          o.connect(g).connect(out); o.start(at); o.stop(at + 0.2);
+        }
+      }
+      state.timer = window.setTimeout(breathe, period * 1000);
+    };
+    breathe();
+    this.suitState = state;
+  }
+  /** Carabiner snapping onto a rail. */
+  clip() {
+    this.burst(0.03, 5200, 6, 0.25);
+    this.burst(0.05, 3100, 8, 0.2, 0.06);
+    this.tone(2400, 0.12, { gain: 0.03, type: 'triangle', delay: 0.06 });
+  }
+  /** Electrical connector: demate (false) or mate (true) with a solid click. */
+  connector(mate: boolean) {
+    this.burst(0.04, mate ? 2600 : 1900, 5, 0.22);
+    this.tone(mate ? 900 : 600, 0.07, { gain: 0.05, type: 'square', delay: 0.02 });
+    if (mate) this.tone(160, 0.12, { gain: 0.12, to: 90 });
+  }
+  /** Pistol Grip Tool ratchet (final = clutch slip at torque). */
+  ratchet(dur = 0.6, final = false) {
+    const n = Math.round(dur * 22);
+    for (let i = 0; i < n; i++) this.burst(0.012, 3400 + (i % 2) * 400, 6, 0.09, i / 22);
+    this.tone(320, dur, { gain: 0.03, type: 'sawtooth', to: 460 });
+    if (final) { this.burst(0.05, 2000, 4, 0.2, dur); this.tone(1500, 0.08, { gain: 0.04, delay: dur + 0.02 }); }
+  }
+  /** Continuous tool whine while the torque needle sweeps (0 = off). */
+  toolWhine(level: number) {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    let m = this.loops.get('tool');
+    if (!m) {
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+      const g = ctx.createGain(); g.gain.value = 0;
+      o.connect(bp).connect(g).connect(this.bus.sfx); o.start();
+      m = { set: (v: number) => { g.gain.setTargetAtTime(v > 0 ? 0.035 : 0, ctx.currentTime, 0.03); o.frequency.setTargetAtTime(180 + v * 260, ctx.currentTime, 0.03); }, stop: () => { g.gain.setTargetAtTime(0, ctx.currentTime, 0.05); setTimeout(() => o.stop(), 300); } };
+      this.loops.set('tool', m);
+    }
+    m.set(level);
+  }
+
   stopLoops() {
     this.loops.forEach((l) => l.stop());
     this.loops.clear();

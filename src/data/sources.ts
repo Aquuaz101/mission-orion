@@ -15,6 +15,11 @@ export interface SourceEntry {
 }
 
 export const SOURCES: SourceEntry[] = [
+  { title: 'Blue Marble Next Generation, July 2004 (500 m/px tile + global mosaic)', usedFor: 'Earth seen from the ISS: the Caribbean, Bahamas and Florida below the spacewalk', credit: 'NASA Earth Observatory · Reto Stöckli, NASA GSFC (MODIS)', url: 'https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/', kind: 'real' },
+  { title: 'International Space Station facts and spacewalk procedures', usedFor: 'ISS mission: altitude, speed, orbit time, tethers, SAFER, Pistol Grip Tool, lithium-ion battery upgrades (2017–2021)', credit: 'NASA', url: 'https://www.nasa.gov/international-space-station/', kind: 'real' },
+  { title: 'Anti-satellite test debris, 15 November 2021', usedFor: 'The ISS debris alert is dramatised from this real event (Kosmos-1408 fragments; the crew sheltered in their spacecraft)', credit: 'NASA', url: 'https://www.nasa.gov/', kind: 'simplified' },
+  { title: 'International Space Station 3D model', usedFor: 'ISS mission briefing', credit: 'NASA 3D Resources', url: 'https://github.com/nasa/NASA-3D-Resources', kind: 'real' },
+  { title: 'Cloud cover and close-up station hardware', usedFor: 'ISS mission: clouds are procedurally baked; truss, battery units, gloves and tools are modelled for this game after NASA imagery', credit: 'MISSION: ORION team', url: '', kind: 'simplified' },
   { title: 'Jezero Crater HiRISE Digital Terrain Model (DTEEC_048842_1985_048908_1985)', usedFor: 'Mars mission terrain: real 1 m/px elevation of the Jezero delta front', credit: 'NASA/JPL-Caltech/University of Arizona · processed by USGS Astrogeology', url: 'https://stac.astrogeology.usgs.gov/', kind: 'real' },
   { title: 'MRO HiRISE image ESP_048842_1985', usedFor: 'Mars terrain surface detail and minimap', credit: 'NASA/JPL-Caltech/University of Arizona', url: 'https://www.uahirise.org/ESP_048842_1985', kind: 'real' },
   { title: 'Mars 2020 Perseverance Rover 3D model', usedFor: 'Player rover', credit: 'NASA/JPL-Caltech · NASA 3D Resources', url: 'https://github.com/nasa/NASA-3D-Resources', kind: 'real' },

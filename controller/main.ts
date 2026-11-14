@@ -324,8 +324,25 @@ function renderLayout(next: ControllerLayout, title: string, subtitle = '', miss
     return;
   }
 
+  if (next === 'iss') {
+    const el = h(`
+      <section class="iss-layout">
+        <div class="hud-strip mono"><span class="objective">${title}</span><button class="mini skip">Skip ›</button></div>
+        <div class="iss-choices"></div>
+        <button class="interact action disabled"><span class="label">ACTION</span></button>
+        <div class="touchpad joy floating look"><div class="knob"></div><div class="pad-hint">Drag to look around</div></div>
+      </section>`);
+    joystick(el.querySelector('.touchpad')!, 'r', true);
+    holdButton(el.querySelector('.action')!, 'primary');
+    el.querySelector('.skip')!.addEventListener('click', () => send({ t: 'tap', id: 'skip' }));
+    main.appendChild(el);
+    return;
+  }
+
   main.appendChild(h(`<section class="lobby"><h1>${title}</h1><p>${subtitle}</p></section>`));
 }
+
+let lastChoices = '';
 
 function applyHud() {
   const obj = main.querySelector('.objective');
@@ -337,6 +354,23 @@ function applyHud() {
       const s = main.querySelector<HTMLInputElement>(`.${k}`);
       if (s && !s.classList.contains('dragging')) s.value = String(v);
     }
+  }
+  if (layout === 'iss') {
+    const box = main.querySelector<HTMLElement>('.iss-choices')!;
+    const key = JSON.stringify(hud.choices ?? null);
+    if (key !== lastChoices) {
+      lastChoices = key;
+      box.innerHTML = '';
+      (hud.choices ?? []).forEach((c, i) => {
+        const b = h(`<button class="m-tile choice"><span class="mono">OPTION ${i + 1}</span><b>${c}</b></button>`);
+        b.addEventListener('click', () => { vibrate(20); send({ t: 'tap', id: `choice:${i + 1}` }); });
+        box.appendChild(b);
+      });
+      box.classList.toggle('empty', !(hud.choices ?? []).length);
+    }
+    const btn = main.querySelector<HTMLElement>('.action')!;
+    btn.classList.toggle('disabled', !hud.prompt);
+    btn.querySelector('.label')!.textContent = hud.prompt ?? 'ACTION';
   }
   if (layout === 'mars') {
     const b = main.querySelector<HTMLElement>('.batt');

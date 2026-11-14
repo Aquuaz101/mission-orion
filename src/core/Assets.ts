@@ -38,6 +38,10 @@ export const ASSET_JOBS: AssetJob[] = [
   { key: 'rockArm', url: '/textures/pbr/rock_arm.jpg', kind: 'texture', kb: 21, label: 'Surface detail · rock roughness' },
   { key: 'rover', url: '/models/perseverance.glb', kind: 'gltf', kb: 4870, label: 'Rover model · NASA/JPL-Caltech Perseverance' },
   { key: 'hubble', url: '/models/hubble.glb', kind: 'gltf', kb: 1655, label: 'Hubble Space Telescope model · NASA' },
+  { key: 'iss', url: '/models/iss.glb', kind: 'gltf', kb: 455, label: 'International Space Station model · NASA' },
+  { key: 'earthHd', url: '/textures/earth_hd.jpg', kind: 'texture', kb: 1160, label: 'Earth from orbit · NASA Blue Marble Next Generation', srgb: true },
+  { key: 'earthDetail', url: '/textures/earth_detail.jpg', kind: 'texture', kb: 490, label: 'Caribbean at 500 m/px · NASA Blue Marble NG', srgb: true },
+  { key: 'earthClouds', url: '/textures/earth_clouds.jpg', kind: 'texture', kb: 580, label: 'Cloud cover (baked)' },
 ];
 
 export type ProgressFn = (fraction: number, label: string) => void;

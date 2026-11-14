@@ -28,6 +28,7 @@ export interface HudState {
   prompt?: string | null;    // contextual action label for the big button
   alert?: boolean;
   vals?: Record<string, number>; // slider sync (e.g. focus, exposure)
+  choices?: string[] | null; // ISS: decision options shown as buttons
 }
 
 /** PC -> Phone */

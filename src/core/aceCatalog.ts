@@ -8,6 +8,7 @@ import { ACE_LINES } from './aceLines';
 import { voiceId } from './voiceId';
 import * as mars from '../missions/mars/script';
 import * as jup from '../missions/jupiter/script';
+import * as iss from '../missions/iss/script';
 
 /** Delivery groups → voice settings in the generator. */
 export type Delivery = 'calm' | 'tense' | 'urgent' | 'warm';
@@ -66,6 +67,21 @@ export function aceCatalog(): CatalogLine[] {
   add(1, 'jupiter', 'warm, satisfied', 'warm', jup.WRAP_UP[0]);
   add(1, 'jupiter', 'calm', 'calm', ...jup.WRAP_UP.slice(1));
   add(1, 'jupiter', 'dry', 'calm', jup.LOCKED);
+
+  // ISS spacewalk
+  const I = iss.L;
+  add(1, 'iss', 'calm, welcoming', 'calm', ...iss.briefingLines('device'), iss.briefingLines('phone')[2]);
+  add(1, 'iss', 'calm, focused', 'calm', I.boot);
+  add(1, 'iss', 'quiet awe', 'warm', I.hatch, I.orbitFact);
+  add(1, 'iss', 'calm', 'calm', I.q1, I.q2, I.q3, I.q4, I.arrive, I.torqueIntro, I.connIntro, I.translating);
+  add(1, 'iss', 'approving, warm', 'warm', I.tetherOk, I.railsOk, I.footOk, I.seqOk, I.torqueDone, I.connDone, I.powerUp);
+  add(1, 'iss', 'calm, helpful', 'calm', I.torqueMiss, I.connWrong);
+  add(1, 'iss', 'serious, alert', 'tense', I.debris1);
+  add(1, 'iss', 'urgent, controlled', 'urgent', I.debris2, I.q6, I.impact);
+  add(1, 'iss', 'focused, tense', 'tense', I.returnOk, I.shieldOk);
+  add(1, 'iss', 'relieved, exhales', 'warm', I.hatchClose);
+  add(1, 'iss', 'warm, reflective', 'calm', I.wrap1, I.wrap2);
+  add(2, 'iss', 'firm, dry', 'tense', ...Object.values(I.wrong).map((t) => ({ text: t, mood: 'alert' as const })));
 
   // 2 · frequent situational lines
   add(2, 'mars', 'calm, informative', 'calm', M.stormFact, M.mmrtg, M.speedNote, M.sand, M.steep, M.aresNear, M.linked);

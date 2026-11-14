@@ -21,6 +21,7 @@ export type Quality = 'low' | 'medium' | 'high';
 const MISSION_LOADERS: Record<string, () => Promise<new (app: App) => Mission>> = {
   jupiter: async () => (await import('../missions/jupiter/JupiterMission')).JupiterMission,
   mars: async () => (await import('../missions/mars/MarsMission')).MarsMission,
+  iss: async () => (await import('../missions/iss/ISSMission')).ISSMission,
 };
 
 /** Owns the shared systems and drives the menu flow between missions. */

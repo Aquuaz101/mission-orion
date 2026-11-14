@@ -1,0 +1,80 @@
+/* Mission 03 · helmet HUD: thin, quiet readouts projected inside the visor */
+.ihud { position: absolute; inset: 0; pointer-events: none; color: #eef6ff; --hud: rgba(220, 240, 255, 0.92); --hud-dim: rgba(190, 215, 235, 0.55); --acc: #7fe3ff; }
+.ihud .ih-tl, .ihud .ih-tr { position: absolute; top: 9vh; font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--hud); text-shadow: 0 0 8px rgba(120, 220, 255, 0.35), 0 1px 3px #000; min-width: 210px; }
+.ihud .ih-tl { left: 9vw; transform: perspective(900px) rotateY(9deg); transform-origin: left center; }
+.ihud .ih-tr { right: 9vw; transform: perspective(900px) rotateY(-9deg); transform-origin: right center; text-align: right; }
+.ihud .ih-title { font-size: 12px; color: #fff; padding-bottom: 6px; margin-bottom: 6px; border-bottom: 1px solid rgba(127, 227, 255, 0.35); }
+.ihud .ih-title em { font-style: normal; color: var(--acc); margin-left: 8px; font-size: 10px; }
+.ihud .ih-title b { color: var(--acc); font-weight: 600; margin-left: 6px; }
+.ihud .ih-row { display: flex; justify-content: space-between; gap: 18px; padding: 2px 0; }
+.ihud .ih-row span { color: var(--hud-dim); }
+.ihud .ih-row b { font-weight: 600; }
+.ihud .ih-row b i { font-style: normal; }
+.ihud .ih-row.good b { color: #6dffb0; }
+.ihud .ih-row.warn b { color: #ff7a4d; animation: pulse 0.8s ease-in-out infinite; }
+
+.ihud .ih-obj { position: absolute; top: 8vh; left: 50%; transform: translateX(-50%); text-align: center; letter-spacing: 0.2em; text-transform: uppercase; text-shadow: 0 1px 4px #000; }
+.ihud .ih-obj span { display: block; font-size: 10px; color: var(--hud-dim); margin-bottom: 4px; }
+.ihud .ih-obj b { font-size: 14px; font-weight: 600; color: #fff; }
+.ihud .ih-obj.new b { animation: objIn 0.8s ease-out; }
+@keyframes objIn { from { opacity: 0; letter-spacing: 0.5em; } to { opacity: 1; letter-spacing: 0.2em; } }
+
+.ihud .ih-cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; border: 1px solid rgba(220, 240, 255, 0.35); }
+
+.ihud .ih-alert { position: absolute; top: 15vh; left: 50%; transform: translateX(-50%); display: none; gap: 14px; align-items: center; padding: 8px 16px; background: rgba(70, 12, 4, 0.7); border: 1px solid rgba(255, 110, 60, 0.7); font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: #ffd7c4; white-space: nowrap; }
+.ihud .ih-alert b { color: #ff7a4d; }
+.ihud .ih-alert em { font-style: normal; color: #ffb08a; border: 1px solid currentColor; padding: 2px 6px; font-size: 9.5px; }
+.ihud.alert .ih-alert { display: flex; animation: alertGlow 1.2s ease-in-out infinite; }
+.ihud.alert { --acc: #ff8a5c; }
+
+.ihud .ih-keys { position: absolute; left: 50%; bottom: 2.5vh; transform: translateX(-50%); display: flex; gap: 18px; font-size: 10.5px; letter-spacing: 0.12em; color: var(--hud-dim); text-transform: uppercase; white-space: nowrap; }
+.ihud .ih-keys .kbd { margin-right: 3px; }
+.ihud .progress-pill { bottom: 30vh; }
+
+/* option system: decisions the astronaut acts out */
+.ihud .choices { position: absolute; left: 50%; bottom: 17vh; transform: translate(-50%, 16px); width: min(880px, calc(100vw - 32px)); opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: auto; text-align: center; }
+.ihud .choices.in { opacity: 1; transform: translate(-50%, 0); }
+.ihud .ch-prompt { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: #fff; margin-bottom: 12px; text-shadow: 0 1px 4px #000; }
+.ihud .ch-icon { width: 30px; height: 30px; }
+.ihud .ch-row { display: flex; gap: 12px; justify-content: center; }
+.ihud .ch-card { flex: 1 1 0; max-width: 280px; display: grid; gap: 4px; justify-items: start; text-align: left; padding: 12px 14px; background: linear-gradient(180deg, rgba(10, 20, 34, 0.78), rgba(6, 12, 22, 0.72)); border: 1px solid rgba(160, 210, 240, 0.28); border-left: 2px solid var(--acc); color: #eef6ff; font: inherit; cursor: pointer; backdrop-filter: blur(6px); transition: transform 0.15s, border-color 0.15s, background 0.15s; position: relative; }
+.ihud .ch-card:hover { transform: translateY(-3px); border-color: rgba(160, 230, 255, 0.7); background: linear-gradient(180deg, rgba(16, 34, 54, 0.85), rgba(8, 18, 30, 0.8)); }
+.ihud .ch-card .kbd { position: absolute; right: 10px; top: 10px; }
+.ihud .ch-card b { font-size: 14px; font-weight: 600; padding-right: 26px; }
+.ihud .ch-card small { font-size: 11.5px; color: var(--hud-dim); }
+.ihud .ch-card .ch-shape { width: 34px; height: 34px; margin-bottom: 2px; }
+.ihud .ch-card.bad { border-left-color: #ff5a3c; opacity: 0.45; cursor: default; transform: none; animation: shake 0.3s; }
+.ihud .ch-card.ok { border-color: #6dffb0; border-left-color: #6dffb0; background: rgba(20, 60, 40, 0.75); }
+.ihud .ch-timer { height: 3px; background: rgba(255, 255, 255, 0.12); margin: 0 auto 12px; width: 60%; overflow: hidden; }
+.ihud .ch-timer i { display: block; height: 100%; background: #ff7a4d; transform-origin: left; }
+@keyframes shake { 0%, 100% { translate: 0; } 25% { translate: -6px; } 75% { translate: 6px; } }
+
+/* torque minigame */
+.ihud .torque { position: absolute; right: 9vw; bottom: 18vh; width: 280px; padding: 14px 16px 12px; pointer-events: auto; background: rgba(6, 14, 24, 0.78); border: 1px solid rgba(160, 210, 240, 0.3); }
+.ihud .tq-head { display: flex; justify-content: space-between; font-size: 10.5px; letter-spacing: 0.16em; color: var(--hud-dim); }
+.ihud .tq-head b { color: #fff; }
+.ihud .tq-dial { width: 100%; margin: 6px 0 2px; overflow: visible; }
+.ihud .tq-arc { fill: none; stroke: rgba(255, 255, 255, 0.18); stroke-width: 10; }
+.ihud .tq-green { fill: none; stroke: #4dff9a; stroke-width: 10; filter: drop-shadow(0 0 4px #4dff9a); }
+.ihud .tq-needle { stroke: #fff; stroke-width: 3; stroke-linecap: round; }
+.ihud .tq-hub { fill: #fff; }
+.ihud .tq-read { text-align: center; font-size: 12px; color: var(--hud-dim); }
+.ihud .tq-read b { font-size: 20px; color: #fff; }
+.ihud .tq-hint { text-align: center; font-size: 10px; color: var(--hud-dim); margin-top: 6px; letter-spacing: 0.1em; }
+.ihud .torque.hit { border-color: #4dff9a; box-shadow: 0 0 24px rgba(77, 255, 154, 0.25); }
+.ihud .torque.miss { border-color: #ff5a3c; animation: shake 0.3s; }
+
+.iss-facts { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important; }
+.iss-fact figcaption { padding: 14px 16px; }
+.iss-fact p { font-size: 13px; line-height: 1.5; color: var(--c-text); }
+
+@media (max-width: 760px) {
+  .ihud .ih-tl, .ihud .ih-tr { top: 6vh; min-width: 150px; font-size: 9.5px; }
+  .ihud .ih-tl { left: 4vw; } .ihud .ih-tr { right: 4vw; }
+  .ihud .ch-row { flex-direction: column; align-items: stretch; }
+  .ihud .ch-card { max-width: none; }
+  .ihud .torque { right: 50%; transform: translateX(50%); }
+}
+
+.ihud .loc-card { bottom: auto; top: 26vh; left: 9vw; }
+
