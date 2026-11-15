@@ -1,0 +1,17 @@
+import{a as e,i as t}from"./dom-Cn_XVGn4.js";var n={rock:`<path d="M10 32 L16 16 L28 10 L38 20 L36 34 L22 40 Z"/><path d="M16 16 L22 26 L38 20"/><path d="M22 26 L22 40"/>`,target:`<circle cx="24" cy="24" r="15"/><circle cx="24" cy="24" r="6"/><path d="M24 3 V12 M24 36 V45 M3 24 H12 M36 24 H45"/>`,storm:`<path d="M8 18 C14 10 34 10 40 18"/><path d="M6 26 C14 18 34 18 42 26"/><path d="M10 34 C18 28 30 28 38 34"/><circle cx="24" cy="40" r="3"/>`,moon:`<circle cx="18" cy="24" r="12"/><circle cx="38" cy="14" r="5"/><path d="M8 30 C14 34 24 34 30 28"/>`,tether:`<circle cx="24" cy="12" r="6"/><path d="M24 18 C10 24 38 30 24 36 C16 40 20 44 24 44"/>`,route:`<circle cx="10" cy="38" r="4"/><circle cx="38" cy="10" r="4"/><path d="M13 35 C22 30 14 20 24 18 C32 16 30 12 35 12" stroke-dasharray="3 4"/>`,battery:`<rect x="8" y="14" width="30" height="20" rx="2"/><path d="M38 20 H42 V28 H38"/><path d="M20 18 L16 25 H23 L19 31"/>`,shield:`<path d="M24 5 L40 11 V24 C40 34 32 41 24 44 C16 41 8 34 8 24 V11 Z"/><path d="M17 24 L22 29 L32 18"/>`,signal:`<path d="M12 36 L24 12 L36 36"/><path d="M8 18 C12 12 16 10 20 9 M40 18 C36 12 32 10 28 9"/><circle cx="24" cy="12" r="2"/>`};function r(r,i,a,o){let s=o.objectives.map((e,r)=>`
+    <li class="oi-card${e.teaser?` teaser`:``}" style="--i:${r}">
+      <div class="oi-num mono">${e.teaser?`?`:String(r+1).padStart(2,`0`)}</div>
+      <svg class="oi-icon" viewBox="0 0 48 48" aria-hidden="true">${n[e.icon]}</svg>
+      <div class="oi-txt"><b>${t(e.title)}</b><span>${t(e.sub)}</span></div>
+      <i class="oi-bar"></i>
+    </li>`).join(``),c=e(`
+    <section class="obj-intro" style="--acc:${o.accent};--acc2:${o.accent2};--n:${o.objectives.length}">
+      <div class="oi-bg"></div><div class="oi-grain"></div><div class="oi-sweep"></div>
+      <div class="oi-inner">
+        <div class="oi-eyebrow mono">${t(o.eyebrow)} <em>· Objectives</em></div>
+        <h1 class="oi-title">${t(o.title)}</h1>
+        <ol class="oi-list">${s}</ol>
+        ${o.footer?`<div class="oi-footer mono">${t(o.footer)}</div>`:``}
+        <div class="oi-skip mono"><b class="kbd">Enter</b> start now</div>
+      </div>
+    </section>`);return r.appendChild(c),a.riser(1.6),new Promise(e=>{let t=[],n=!1,r=(e,n)=>t.push(window.setTimeout(n,e));o.objectives.forEach((e,t)=>r(900+t*420,()=>{a.blip(),a.typeTick()}));let s=r=>{if(n)return;n=!0,t.forEach(clearTimeout),l(),c.classList.add(`leave`),r&&c.classList.add(`fast`),a.whoosh();let i=o.target?.(),s=i?.getBoundingClientRect();c.querySelectorAll(`.oi-card`).forEach((e,t)=>{let n=e.getBoundingClientRect(),i=s?s.left+s.width/2-(n.left+n.width/2):-n.left,a=s?s.top+s.height/2-(n.top+n.height/2):-n.top;e.style.setProperty(`--dx`,`${i}px`),e.style.setProperty(`--dy`,`${a}px`),e.style.setProperty(`--d`,`${r?t*30:t*70}ms`)}),s&&(c.style.setProperty(`--tx`,`${s.left+s.width/2}px`),c.style.setProperty(`--ty`,`${s.top+s.height/2}px`));let u=r?650:1100;window.setTimeout(()=>{c.remove(),i&&(i.classList.remove(`oi-landed`),i.offsetWidth,i.classList.add(`oi-landed`)),a.objective(),e()},u)},l=i.onPress(e=>{(e===`confirm`||e===`primary`||e===`skip`)&&s(!0)});c.addEventListener(`pointerdown`,()=>s(!0)),r(900+o.objectives.length*420+2200,()=>s(!1))})}export{r as t};

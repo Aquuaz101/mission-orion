@@ -1,0 +1,18 @@
+{
+  "files": {
+    "menu": "menu.mp3",
+    "jupiter": "jupiter.mp3",
+    "mars": "mars.mp3",
+    "tension": "tension.mp3",
+    "rescue": "rescue.mp3",
+    "triumph": "triumph.mp3"
+  },
+  "credits": [
+    { "slot": "menu", "title": "Epic Main Menu Theme ~ Loop (Übermensch)", "author": "CleytonKauffman", "license": "CC0", "url": "https://opengameart.org/content/epic-main-menu-theme-loop" },
+    { "slot": "jupiter", "title": "Starfield Romance", "author": "Yoiyami", "license": "CC0", "url": "https://opengameart.org/content/starfield-romance-%E2%80%93-cc0-ambient-emotional-space-theme-yoiyami-blue-series-%E2%80%93-no3" },
+    { "slot": "mars", "title": "Outer Space Loop", "author": "wipics", "license": "CC0", "url": "https://opengameart.org/content/outer-space-loop" },
+    { "slot": "tension", "title": "Battle Theme", "author": "Wolfgang_", "license": "CC0", "url": "https://opengameart.org/content/battle-theme-0" },
+    { "slot": "rescue", "title": "Determined Pursuit (epic orchestra loop)", "author": "Emma_MA", "license": "CC0", "url": "https://opengameart.org/content/determined-pursuit-epic-orchestra-loop" },
+    { "slot": "triumph", "title": "Fantasy Orchestral Theme & Emotional piano loop", "author": "glitchart (Joth vs extenz)", "license": "CC0", "url": "https://opengameart.org/content/fantasy-orchestral-theme-emotional-piano-loop-joth-vs-extenz" }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-11-14T20:48:42.575Z",
+  "voice": "JBFqnCBsd6RMkjVDRZzb",
+  "voiceLines": "44 / 44",
+  "voiceMissing": [],
+  "voiceMissingChars": 0,
+  "sfx": "19 / 26",
+  "sfxMissing": [
+    "winch",
+    "whoosh",
+    "scope_shutter",
+    "scope_lock",
+    "radio_in",
+    "radio_out",
+    "amb_space"
+  ],
+  "music": "0 / 6",
+  "musicMissing": [],
+  "stoppedBy": null
+}
