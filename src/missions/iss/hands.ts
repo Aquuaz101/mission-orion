@@ -1,12 +1,11 @@
 /**
- * First-person EMU (spacesuit) arms: Phase VI-style gloves + lower arms, built procedurally with
- * canvas fabric textures (weave, seams, wear) and normal maps so they hold up at 30 cm from the lens.
- * Each hand: gauntlet, wrist disconnect (anodised ring + chrome bearing), palm with grip pad, restraint
- * straps, three-segment fingers with knuckle bellows and rubber tips, thumb; the sleeve carries convolute
- * bearing rings, plus the cuff checklist (left) or the wrist mirror and tether loop (right).
+ * First-person EMU (spacesuit) arms: the Blender model (scripts/blender/emu_arm.py → public/models/emu_arm.glb) dressed
+ * in canvas fabric (weave normal map), rubber grip, anodised and chrome materials made here, plus the cuff checklist
+ * (left) and wrist mirror (right).
  */
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { GLTF } from 'three/addons/loaders/GLTFLoader.js';
 
 let shared: ReturnType<typeof makeMats> | null = null;
@@ -144,6 +143,7 @@ export function emuArmModel(side: number, gltf: GLTF): EmuHand {
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.frustumCulled = false; // bones move the glove outside its bind-pose bounds
   });
+  bakeRigidParts(model);
   root.add(model);
   const bone = (n: string) => { const b = model.getObjectByName(n)!; b.userData.rest = b.quaternion.clone(); return b; };
   const fingers = [0, 1, 2, 3].map((fi) => [0, 1, 2].map((si) => bone(`f${fi}_${si}`)));
@@ -156,6 +156,43 @@ export function emuArmModel(side: number, gltf: GLTF): EmuHand {
   const hand: EmuHand = { root, fingers, thumb, grip: 0, skinned: true };
   setGrip(hand, 0.25);
   return hand;
+}
+
+/**
+ * The arm's rigid parts (sleeve, gauntlet, disconnect ring, bearing, pins, bolt heads) never move relative to the
+ * hand root: bake them into one mesh per material so each arm costs a handful of draw calls instead of ~30.
+ * The skinned glove and anything riding on a bone are left alone.
+ */
+function bakeRigidParts(model: THREE.Object3D) {
+  model.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(model.matrixWorld).invert();
+  const onBone = (o: THREE.Object3D) => { for (let p = o.parent; p && p !== model; p = p.parent) if ((p as THREE.Bone).isBone) return true; return false; };
+  const groups = new Map<THREE.Material, THREE.BufferGeometry[]>();
+  const rigid: THREE.Mesh[] = [];
+  model.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh || (mesh as THREE.SkinnedMesh).isSkinnedMesh || onBone(mesh) || Array.isArray(mesh.material)) return;
+    const g = mesh.geometry.clone();
+    for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
+    for (const k of ['position', 'normal', 'uv']) {
+      const at = g.getAttribute(k) as THREE.BufferAttribute | undefined;
+      if (at && !(at.array instanceof Float32Array)) { const n = at.count, sz = at.itemSize, out = new Float32Array(n * sz); for (let i = 0; i < n; i++) for (let c = 0; c < sz; c++) out[i * sz + c] = at.getComponent(i, c); g.setAttribute(k, new THREE.BufferAttribute(out, sz)); }
+    }
+    if (!g.getAttribute('uv')) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    if (!g.index) g.setIndex(Array.from({ length: g.attributes.position.count }, (_, i) => i));
+    g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, mesh.matrixWorld));
+    const list = groups.get(mesh.material) ?? [];
+    list.push(g); groups.set(mesh.material, list); rigid.push(mesh);
+  });
+  for (const mesh of rigid) mesh.removeFromParent();
+  for (const [mat, geos] of groups) {
+    const merged = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = mesh.receiveShadow = true;
+    model.add(mesh);
+  }
 }
 
 function addAccessories(arm: THREE.Object3D, side: number, m: ReturnType<typeof makeMats>) {
@@ -178,111 +215,6 @@ function addAccessories(arm: THREE.Object3D, side: number, m: ReturnType<typeof 
     const rim = add(new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.003, 8, 32), m.black), arm);
     rim.position.copy(mirror.position); rim.rotation.copy(mirror.rotation);
   }
-}
-
-/** One EMU glove + lower sleeve. side = -1 left, +1 right. Hand points along -Z, palm faces -Y. */
-export function emuArm(side: number): EmuHand {
-  const m = (shared ??= makeMats());
-  const root = new THREE.Group();
-  const add = (mesh: THREE.Mesh, parent: THREE.Object3D = root) => { mesh.castShadow = true; mesh.receiveShadow = true; parent.add(mesh); return mesh; };
-
-  // ── sleeve (lower arm): runs back and down toward the elbow, with bearing convolutes
-  const arm = new THREE.Group();
-  arm.rotation.x = 0.62;
-  root.add(arm);
-  const sleeveProfile = [[0.05, 0.04], [0.056, 0.06], [0.06, 0.14], [0.064, 0.24], [0.069, 0.34], [0.073, 0.44]].map(([x, y]) => new THREE.Vector2(x, y));
-  const sleeve = add(new THREE.Mesh(new THREE.LatheGeometry(sleeveProfile, 32), m.fabric), arm);
-  sleeve.rotation.x = Math.PI / 2;
-  for (const [z, rr] of [[0.12, 0.059], [0.2, 0.062], [0.28, 0.065], [0.36, 0.069]]) {
-    const ring = add(new THREE.Mesh(new THREE.TorusGeometry(rr + 0.004, 0.0065, 8, 32), m.fabricDark), arm);
-    ring.position.z = z;
-  }
-  // ── wrist disconnect: anodised ring (left blue, right red) + chrome bearing + latch nubs
-  const ano = side < 0 ? m.anoBlue : m.anoRed;
-  const disc = add(new THREE.Mesh(new THREE.CylinderGeometry(0.054, 0.054, 0.022, 40), ano));
-  disc.rotation.x = Math.PI / 2; disc.position.z = 0.03;
-  const bearing = add(new THREE.Mesh(new THREE.TorusGeometry(0.053, 0.006, 10, 40), m.chrome));
-  bearing.position.z = 0.012;
-  for (let i = 0; i < 3; i++) {
-    const nub = add(new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.01, 0.018), m.chrome));
-    const a = (i / 3) * Math.PI * 2 + 0.5;
-    nub.position.set(Math.cos(a) * 0.063, Math.sin(a) * 0.063, 0.03);
-  }
-  // ── gauntlet (flared cuff over the wrist)
-  const gaunt = add(new THREE.Mesh(new THREE.LatheGeometry([[0.044, 0], [0.05, 0.02], [0.054, 0.045], [0.056, 0.06]].map(([x, y]) => new THREE.Vector2(x, y)), 28), m.fabric));
-  gaunt.rotation.x = -Math.PI / 2; gaunt.position.z = 0.005;
-  // ── palm: rounded, slightly cupped; dark grip pad underneath; restraint straps on the back
-  const palmGeo = new THREE.SphereGeometry(1, 28, 18);
-  palmGeo.scale(0.05, 0.02, 0.056);
-  const palm = add(new THREE.Mesh(palmGeo, m.fabric));
-  palm.position.set(0, 0, -0.06);
-  const padGeo = new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, Math.PI * 0.55, Math.PI * 0.45);
-  padGeo.scale(0.047, 0.019, 0.052);
-  const pad = add(new THREE.Mesh(padGeo, m.grip));
-  pad.position.set(0, -0.002, -0.06);
-  for (const z of [-0.042, -0.075]) {
-    const strap = add(new THREE.Mesh(new THREE.TorusGeometry(0.044, 0.004, 6, 24, Math.PI), m.strap));
-    strap.position.set(0, 0.002, z); strap.rotation.set(0, Math.PI / 2, 0); strap.rotation.z = 0;
-    strap.scale.set(1, 0.48, 1);
-  }
-
-  // ── fingers: proximal / middle / distal, knuckle bellows, rubber tips; slightly splayed
-  const fingers: THREE.Group[][] = [];
-  const lens = [[0.03, 0.022, 0.019], [0.033, 0.024, 0.02], [0.031, 0.023, 0.019], [0.025, 0.019, 0.017]];
-  [-0.031, -0.0105, 0.0105, 0.03].forEach((x, fi) => {
-    const chain: THREE.Group[] = [];
-    let parent: THREE.Object3D = root;
-    lens[fi].forEach((len, si) => {
-      const j = new THREE.Group();
-      if (si === 0) { j.position.set(x * side, 0.002, -0.108); j.rotation.y = -x * side * 1.2; }
-      else j.position.z = -lens[fi][si - 1];
-      const rad = 0.0112 - si * 0.0008 - (fi === 3 ? 0.0012 : 0);
-      const seg = add(new THREE.Mesh(new THREE.CapsuleGeometry(rad, len * 0.62, 4, 12), si === 2 ? m.tip : m.fabric), j);
-      seg.rotation.x = Math.PI / 2; seg.position.z = -len / 2;
-      if (si < 2) { const bel = add(new THREE.Mesh(new THREE.TorusGeometry(rad * 0.98, 0.0022, 6, 16), m.fabricDark), j); bel.position.z = -len; }
-      if (si === 0) { const under = add(new THREE.Mesh(new THREE.CapsuleGeometry(rad * 0.75, len * 0.4, 3, 8), m.grip), j); under.rotation.x = Math.PI / 2; under.position.set(0, -rad * 0.55, -len / 2); }
-      parent.add(j); chain.push(j); parent = j;
-    });
-    fingers.push(chain);
-  });
-  const thumb: THREE.Group[] = [];
-  let tp: THREE.Object3D = root;
-  [0.03, 0.026].forEach((len, i) => {
-    const j = new THREE.Group();
-    if (i === 0) { j.position.set(-0.048 * side, -0.008, -0.055); j.rotation.set(-0.2, 0.85 * side, 0.5 * side); }
-    else j.position.z = -0.03;
-    const seg = add(new THREE.Mesh(new THREE.CapsuleGeometry(0.0125 - i * 0.001, len * 0.6, 4, 12), i === 1 ? m.tip : m.fabric), j);
-    seg.rotation.x = Math.PI / 2; seg.position.z = -len / 2;
-    tp.add(j); thumb.push(j); tp = j;
-  });
-
-  // ── wrist accessories
-  if (side < 0) {
-    // cuff checklist: small spiral-bound flip book on top of the left forearm
-    const book = new THREE.Group();
-    const cover = add(new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.006, 0.065), m.black), book);
-    cover.position.y = -0.002;
-    const page = add(new THREE.Mesh(new THREE.PlaneGeometry(0.08, 0.06), m.page), book);
-    page.rotation.x = -Math.PI / 2; page.position.y = 0.0015;
-    for (let i = 0; i < 7; i++) { const coil = add(new THREE.Mesh(new THREE.TorusGeometry(0.0035, 0.0008, 4, 10), m.chrome), book); coil.position.set(-0.03 + i * 0.01, 0.002, 0.033); coil.rotation.y = Math.PI / 2; }
-    book.position.set(0, 0.075, 0.13);
-    book.rotation.set(0.62, Math.PI, 0);
-    arm.add(book);
-  } else {
-    // wrist mirror on its bracket + a wrist tether loop
-    const bracket = add(new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.03, 0.01), m.chrome), arm);
-    bracket.position.set(-0.05, 0.05, 0.1);
-    const mirror = add(new THREE.Mesh(new THREE.CircleGeometry(0.022, 24), m.mirror), arm);
-    mirror.position.set(-0.058, 0.07, 0.1); mirror.rotation.set(-0.5, -0.9, 0);
-    const rim = add(new THREE.Mesh(new THREE.TorusGeometry(0.022, 0.003, 6, 24), m.black), arm);
-    rim.position.copy(mirror.position); rim.rotation.copy(mirror.rotation);
-    const loop = add(new THREE.Mesh(new THREE.TorusGeometry(0.014, 0.003, 6, 16), m.chrome), arm);
-    loop.position.set(0.062, -0.01, 0.06); loop.rotation.y = Math.PI / 2;
-  }
-
-  const hand = { root, fingers, thumb, grip: 0 };
-  setGrip(hand, 0.25);
-  return hand;
 }
 
 /** 0 = relaxed (pressurised gloves never fully open), 1 = closed around a handrail. */

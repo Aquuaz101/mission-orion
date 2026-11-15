@@ -204,7 +204,7 @@ export class App {
     let launching = false;
     const ui = codMissionSelect(this.sfx, {
       onFocus: (m) => {
-        if (m?.id === 'iss') void this.assets.loadModel('issHd', '/models/iss_hd.glb').catch(() => {});
+        if (m?.id === 'iss') { void this.assets.loadModel('issHd', '/models/iss_hd.glb').catch(() => {}); void this.assets.loadModel('issFar', '/models/iss_far.glb').catch(() => {}); }
         stage.setFocus(m ? (m.id === 'iss' ? 'earth' : (m.id as 'jupiter' | 'mars')) : 'overview'); this.sfx.setMusicFocus(m ? 1 : 0.5); },
       onLaunch: async (m) => {
         if (launching) return;

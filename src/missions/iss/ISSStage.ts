@@ -10,8 +10,8 @@ import type { Assets } from '../../core/Assets';
 import type { Quality } from '../../app/App';
 import { makeMaterials, handrail, batteryOru, pistolGripTool, type Mats, type Oru } from './parts';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { mergeStatic } from '../../core/mergeStatic';
-import { emuArm, emuArmModel, suitMaterials, setGrip, type EmuHand } from './hands';
+import { mergeStatic, mergeSiblings, updateLod } from '../../core/mergeStatic';
+import { emuArmModel, suitMaterials, setGrip, type EmuHand } from './hands';
 import { earthMaterial, atmosphereMaterial, RaysShader, VisorShader, visorDirt, glowTex, R_EARTH, ALT } from './issfx';
 
 /**
@@ -30,11 +30,16 @@ export const HATCH = new THREE.Vector3(4.07, -4.85, 7.65);
 export const SITE = new THREE.Vector3(-1.82, 0.0, -23.0);
 /** Station model is in inches × 0.00258 → metres. */
 const MODEL_SCALE = 9.8378;
+/** Station clusters closer than this (metres, to the cluster's surface) draw full detail; farther ones the far LOD. */
+const LOD_NEAR = 14;
+/** Layer seen only by the sun's shadow camera: the simplified station casts the shadows (soft at this scale, so the
+ *  quarter-detail geometry is indistinguishable and the shadow pass costs a quarter as much). */
+const SHADOW_ONLY = 2;
 
 const PRESETS: Record<Quality, { shadow: number; bloom: boolean; msaa: number; seg: number; rays: boolean; occDiv: number }> = {
-  high: { shadow: 2048, bloom: true, msaa: 2, seg: 512, rays: true, occDiv: 3 },
-  medium: { shadow: 1536, bloom: true, msaa: 2, seg: 384, rays: true, occDiv: 3 },
-  low: { shadow: 1024, bloom: false, msaa: 0, seg: 256, rays: false, occDiv: 4 },
+  high: { shadow: 2048, bloom: true, msaa: 2, seg: 256, rays: true, occDiv: 3 },
+  medium: { shadow: 1536, bloom: true, msaa: 2, seg: 192, rays: true, occDiv: 3 },
+  low: { shadow: 1024, bloom: false, msaa: 0, seg: 128, rays: false, occDiv: 4 },
 };
 
 type Vec = THREE.Vector3;
@@ -257,7 +262,7 @@ export class ISSStage implements Stage {
     this.earth.position.set(0, -(R_EARTH + ALT), 0);
     this.sky.add(this.earth);
     this.atmo = atmosphereMaterial();
-    const shell = new THREE.Mesh(new THREE.SphereGeometry(R_EARTH + 90, 256, 128), this.atmo);
+    const shell = new THREE.Mesh(new THREE.SphereGeometry(R_EARTH + 90, 128, 64), this.atmo);
     shell.position.copy(this.earth.position);
     this.atmo.uniforms.center.value.copy(this.earth.position);
     this.sky.add(shell);
@@ -272,6 +277,7 @@ export class ISSStage implements Stage {
     this.sun.castShadow = quality !== 'low';
     this.sun.shadow.mapSize.set(this.preset.shadow, this.preset.shadow);
     const sc = this.sun.shadow.camera;
+    sc.layers.enable(SHADOW_ONLY);
     sc.left = sc.bottom = -14; sc.right = sc.top = 14; sc.near = 1; sc.far = 90;
     this.sun.shadow.bias = -0.0003;
     this.sun.shadow.normalBias = 0.03;
@@ -303,10 +309,22 @@ export class ISSStage implements Stage {
       }
       // bake the 839 NASA meshes into material clusters of ~9 m: a few hundred draw calls fewer per pass (main view,
       // light-shaft occlusion, shadows) while culling and nearby-only shadow casting still work per cluster
-      const baked = mergeStatic(st, 9 / MODEL_SCALE); // ~9 m cells (model units are pre-scale)
+      // ~9 m clusters (model units are pre-scale); with the simplified twin each cluster switches to 23 % of the
+      // triangles beyond ${LOD_NEAR} m, which is most of the 100 m station from wherever the astronaut is
+      const baked = mergeStatic(st, 9 / MODEL_SCALE, (m) => m, assets.models.issFar?.scene ?? null);
       baked.scale.copy(st.scale);
       this.meshes = [];
-      baked.traverse((o) => { const mesh = o as THREE.Mesh; if (mesh.isMesh) { mesh.receiveShadow = true; mesh.castShadow = false; this.meshes.push(mesh); } });
+      for (const cl of baked.userData.clusters as { near: THREE.Mesh; far: THREE.Mesh | null }[]) {
+        cl.near.receiveShadow = true; cl.near.castShadow = false;
+        if (cl.far) {
+          cl.far.receiveShadow = true; cl.far.castShadow = false;
+          const proxy = new THREE.Mesh(cl.far.geometry, cl.near.material);
+          proxy.layers.set(SHADOW_ONLY);
+          proxy.castShadow = false;
+          baked.add(proxy);
+          this.meshes.push(proxy);
+        } else this.meshes.push(cl.near);
+      }
       this.scene.add(baked);
       this.station = baked;
     }
@@ -355,7 +373,8 @@ export class ISSStage implements Stage {
     this.scene.add(this.body);
     this.body.add(this.camera);
     const armModel = assets.models.emuArm ?? null;
-    const hl = armModel ? emuArmModel(-1, armModel) : emuArm(-1), hr = armModel ? emuArmModel(1, armModel) : emuArm(1);
+    if (!armModel) throw new Error('EMU arm model missing (public/models/emu_arm.glb)');
+    const hl = emuArmModel(-1, armModel), hr = emuArmModel(1, armModel);
     this.camera.add(hl.root, hr.root);
     (window as unknown as { orionGrabMisses?: unknown }).orionGrabMisses = HandCtl.misses; // QA hook
     this.L = new HandCtl(hl, this.camera, -1);
@@ -383,6 +402,7 @@ export class ISSStage implements Stage {
         }
         if (/^j[A-Z]/.test(o.name)) { this.suitJ[o.name] = o; this.suitRest.set(o, o.quaternion.clone()); this.suitPrev.set(o, o.quaternion.clone()); }
       });
+      mergeSiblings(suit); // 75 pieces on bones -> one mesh per bone per material
       suit.visible = false;
       this.scene.add(suit);
       this.suit = suit;
@@ -818,6 +838,7 @@ export class ISSStage implements Stage {
     if (this.suit?.visible) this.poseSuit();
     this.updateTether();
     this.updateDebris(dt);
+    this.updateStationLod(dt);
     this.updateShadowCasters(dt);
 
     this.sun.target.position.copy(this.body.position);
@@ -924,6 +945,18 @@ export class ISSStage implements Stage {
   }
 
   /** Only station parts near the helmet cast shadows (re-evaluated twice a second). */
+  private lodTick = 0;
+  private lodLocal = new THREE.Vector3();
+  /** Distance-switch station clusters between full detail and the far LOD (4x a second is plenty). */
+  private updateStationLod(dt: number) {
+    this.lodTick -= dt;
+    if (this.lodTick > 0 || !this.station) return;
+    this.lodTick = 0.25;
+    this.camera.getWorldPosition(this.lodLocal);
+    this.station.worldToLocal(this.lodLocal);
+    updateLod(this.station, this.lodLocal, LOD_NEAR / MODEL_SCALE);
+  }
+
   private updateShadowCasters(dt: number) {
     this.shadowTick -= dt;
     if (this.shadowTick > 0 || !this.sun.castShadow) return;
@@ -932,7 +965,7 @@ export class ISSStage implements Stage {
     for (const mesh of this.meshes) {
       if (!mesh.geometry.boundingSphere) continue;
       s.copy(mesh.geometry.boundingSphere).applyMatrix4(mesh.matrixWorld);
-      mesh.castShadow = s.center.distanceTo(c) - s.radius < 16;
+      mesh.castShadow = s.center.distanceTo(c) - s.radius < 12;
     }
   }
 

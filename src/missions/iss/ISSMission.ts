@@ -4,6 +4,7 @@ import './iss.css';
 import type { App } from '../../app/App';
 import type { Mission, MissionExit } from '../types';
 import { ISSStage } from './ISSStage';
+import { mergeStatic } from '../../core/mergeStatic';
 import { ISS_SPECS, briefingLines, L, CHOICES, CONNECTORS, FACTS, type Choice } from './script';
 import { html, $, escapeHtml } from '../../ui/dom';
 import type { CommanderLine } from '../../core/Commander';
@@ -109,8 +110,7 @@ export class ISSMission implements Mission {
     app.space.setShot('briefing', 0.7);
     // the briefing shows the same NASA high-detail station the spacewalk uses (streams in if not cached yet)
     const hd = app.assets.models.issHd?.scene;
-    const lite = app.assets.models.iss?.scene;
-    app.space.showModel((hd ?? lite)?.clone(true) ?? null, 5.2);
+    app.space.showModel(this.showcaseStation() ?? hd?.clone(true) ?? null, 5.2);
     let briefingOpen = true;
     app.link.send({ t: 'layout', layout: 'lobby', title: 'Mission 03 · Briefing', subtitle: 'Tap Begin when you are ready', cta: 'Begin spacewalk' });
     const specs = ISS_SPECS.map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
@@ -143,7 +143,7 @@ export class ISSMission implements Mission {
       app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (tag.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`))
         .then((g) => {
           tag.textContent = 'STATION MODEL · NASA ISS (IGOAL) · READY';
-          if (briefingOpen && !this.disposed) app.space.showModel(g.scene.clone(true), 5.2);
+          if (briefingOpen && !this.disposed) app.space.showModel(this.showcaseStation() ?? g.scene.clone(true), 5.2);
         })
         .catch(() => (tag.textContent = 'STATION MODEL · OFFLINE COPY'));
     }
@@ -154,6 +154,16 @@ export class ISSMission implements Mission {
       const off = app.input.onPress((id) => { if (!this.paused && (id === 'confirm' || id === 'primary')) done(true); });
       this.disposers.push(off);
     });
+  }
+
+  /** Briefing showcase: the HD station baked to one mesh per material (~43 draw calls instead of 839). */
+  private showcaseStation() {
+    const hd = this.app.assets.models.issHd?.scene;
+    if (!hd) return null;
+    const st = hd.clone(true);
+    st.scale.setScalar(1);
+    st.traverse((o) => { if (o.name === 'SSRMS_Base') o.visible = true; });
+    return mergeStatic(st, 0);
   }
 
   // ─────────────────────────────────────────── suit boot + build the scene behind a black screen
@@ -170,6 +180,7 @@ export class ISSMission implements Mission {
     const ld = await line('STATION MODEL · NASA ISS (IGOAL) · 0%', 100);
     const gltf = await app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (ld.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`)).catch(() => null);
     ld.textContent = gltf ? 'STATION MODEL · NASA ISS (IGOAL) · READY' : 'STATION MODEL · UNAVAILABLE';
+    await app.assets.loadModel('issFar', '/models/iss_far.glb').catch(() => null); // simplified twin for distant clusters
     await app.assets.loadModel('emuArm', '/models/emu_arm.glb').catch(() => null); // EMU gloves (Blender, skinned)
     await app.assets.loadModel('emuSuit', '/models/emu_suit.glb').catch(() => null); // full EMU for cutscenes (Blender)
     this.alive();
