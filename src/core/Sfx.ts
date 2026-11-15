@@ -801,7 +801,16 @@ class MusicDirector {
       g.gain.value = 0;
       g.gain.setTargetAtTime(1, t, state === 'tension' || state === 'triumph' ? 0.25 : 1.2);
       this.ctx.createMediaElementSource(el).connect(g).connect(this.out);
-      void el.play().catch(() => undefined);
+      void el.play().catch(() => {
+        // Edge's default autoplay setting ("Limit") can refuse a track that starts a moment after the click
+        // (or mid-mission). Instead of staying silent, start it on the player's next click, tap or key press.
+        const evs = ['pointerdown', 'keydown', 'touchend'] as const;
+        const retry = () => {
+          for (const ev of evs) window.removeEventListener(ev, retry, true);
+          if (this.file?.el === el && el.paused) void el.play().catch(() => undefined);
+        };
+        for (const ev of evs) window.addEventListener(ev, retry, true);
+      });
       this.file = { el, g };
       return;
     }
