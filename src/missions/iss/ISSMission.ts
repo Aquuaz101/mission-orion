@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import '../mars/mars.css'; // shared cinematic pieces (cover, location card, progress pill)
 import './iss.css';
+import { playObjectiveIntro } from '../../ui/objectiveIntro';
 import type { App } from '../../app/App';
 import type { Mission, MissionExit } from '../types';
 import { ISSStage } from './ISSStage';
-import { mergeStatic } from '../../core/mergeStatic';
+import { mergeStatic, opaqueCutout } from '../../core/mergeStatic';
 import { ISS_SPECS, briefingLines, L, CHOICES, CONNECTORS, FACTS, type Choice } from './script';
 import { html, $, escapeHtml } from '../../ui/dom';
 import type { CommanderLine } from '../../core/Commander';
@@ -163,6 +164,7 @@ export class ISSMission implements Mission {
     const st = hd.clone(true);
     st.scale.setScalar(1);
     st.traverse((o) => { if (o.name === 'SSRMS_Base') o.visible = true; });
+    opaqueCutout(st);
     return mergeStatic(st, 0);
   }
 
@@ -214,6 +216,18 @@ export class ISSMission implements Mission {
   private async egress() {
     const st = this.stage!, { sfx } = this.app;
     this.setObjective('Secure the tether');
+    await playObjectiveIntro(this.app.ui, this.app.input, sfx, {
+      eyebrow: 'Mission 03 · International Space Station', title: 'Guide the spacewalk', accent: '#4fd8ff', accent2: '#3b5bff',
+      objectives: [
+        { title: 'Secure the tether', sub: 'Before the astronaut lets go of the airlock', icon: 'tether' },
+        { title: 'Reach the P3 battery bank', sub: 'Pick the right way across 40 m of truss', icon: 'route' },
+        { title: 'Replace battery 3B', sub: 'Call each step of the swap, in a safe order', icon: 'battery' },
+        { title: 'Keep the astronaut safe', sub: 'Expect the unexpected', icon: 'shield', teaser: true },
+      ],
+      footer: this.app.mode === 'device' ? 'Press 1 · 2 · 3 to make each call  ·  Mouse to look around' : 'Tap your call on the phone  ·  Drag the pad to look around',
+      target: () => this.hud?.querySelector<HTMLElement>('.ih-obj') ?? null,
+    });
+    this.alive();
     sfx.setMusic('jupiter');
     sfx.setMusicFocus(1);
     // a slow drift off the hatch, the night side of Earth turning beneath the station

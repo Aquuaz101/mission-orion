@@ -130,3 +130,23 @@ export function mergeSiblings(root: THREE.Object3D) {
   }
 }
 
+
+/**
+ * NASA's ISS flags 15 materials (incl. the truss and payload carriers, ~75 % of the station) as alpha BLEND with
+ * full opacity. Blended surfaces don't write depth and are sorted per object, so up close overlapping parts vanish
+ * behind or through each other. Render them opaque with an alpha cutout instead: correct depth, cutouts kept,
+ * and no per-frame sorting.
+ */
+export function opaqueCutout(root: THREE.Object3D) {
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const m of (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.MeshStandardMaterial[]) {
+      if (!m.transparent || m.opacity < 1) continue;
+      m.transparent = false;
+      m.depthWrite = true;
+      m.alphaTest = Math.max(m.alphaTest, 0.5);
+      m.needsUpdate = true;
+    }
+  });
+}

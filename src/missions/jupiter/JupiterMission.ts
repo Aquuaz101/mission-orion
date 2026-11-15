@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { playObjectiveIntro } from '../../ui/objectiveIntro';
 import type { App } from '../../app/App';
 import type { Mission, MissionExit } from '../types';
 import { JupiterStage, TIMELAPSE, RJ_KM } from './JupiterStage';
@@ -163,6 +164,17 @@ export class JupiterMission implements Mission {
 
     app.link.send({ t: 'layout', layout: 'jupiter', title: 'Point · zoom · focus · capture' });
     this.syncPhone();
+    await playObjectiveIntro(app.ui, app.input, app.sfx, {
+      eyebrow: 'Mission 01 · Jupiter', title: 'Observe the giant planet', accent: '#f2b56b', accent2: '#4f7dff',
+      objectives: [
+        { title: OBJECTIVES[0].title, sub: 'Centre Jupiter, zoom until it fills the brackets, sharpen the focus', icon: 'target' },
+        { title: OBJECTIVES[1].title, sub: 'Track the storm as it rotates into view', icon: 'storm' },
+        { title: OBJECTIVES[2].title, sub: 'Find Europa, the nearest moon on Jupiter’s left', icon: 'moon' },
+      ],
+      footer: app.mode === 'device' ? 'Drag/WASD point  ·  Wheel zoom  ·  Z X focus  ·  Space capture' : 'Use the phone to point, zoom, focus and capture',
+      target: () => this.hud?.querySelector<HTMLElement>('.jh-obj') ?? null,
+    });
+    if (this.disposed) return;
 
     // Inputs
     this.disposers.push(

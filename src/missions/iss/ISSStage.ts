@@ -10,7 +10,7 @@ import type { Assets } from '../../core/Assets';
 import type { Quality } from '../../app/App';
 import { makeMaterials, handrail, batteryOru, pistolGripTool, type Mats, type Oru } from './parts';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { mergeStatic, mergeSiblings, updateLod } from '../../core/mergeStatic';
+import { mergeStatic, mergeSiblings, opaqueCutout, updateLod } from '../../core/mergeStatic';
 import { emuArmModel, suitMaterials, setGrip, type EmuHand } from './hands';
 import { earthMaterial, atmosphereMaterial, RaysShader, VisorShader, visorDirt, glowTex, R_EARTH, ALT } from './issfx';
 
@@ -301,6 +301,7 @@ export class ISSStage implements Stage {
         for (const mt of mats as THREE.MeshStandardMaterial[]) if ('envMapIntensity' in mt) mt.envMapIntensity = 1.0;
       });
       st.updateMatrixWorld(true);
+      opaqueCutout(st); // NASA BLEND materials would drop out of depth sorting up close
       // Quest's own outboard hatch sits exactly where our animated hatch is: cut that disc out of the model
       const air = st.getObjectByName('Airlock');
       if (air && !air.userData.hatchCut) {

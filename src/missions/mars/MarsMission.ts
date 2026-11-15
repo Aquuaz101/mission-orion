@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import './mars.css';
+import { playObjectiveIntro } from '../../ui/objectiveIntro';
 import type { App } from '../../app/App';
 import type { Mission, MissionExit } from '../types';
 import { MarsStage, MAX_SPEED } from './MarsStage';
@@ -20,7 +21,8 @@ const JEZERO = { lat: 18.38, lon: 77.58 };
  * Start in a shadowed ravine → channel → basin pit (ARES-7) → sunlit mesa (recovery) → layered outcrop.
  */
 const GRID: Record<string, [number, number]> = {
-  start: [352, 594], s1: [336, 515], s2: [350, 412], ares: [385, 285], zone: [480, 262], s3: [505, 212],
+  // demo-length route (~240 m): each objective pulled halfway toward the start along the original path (was ~480 m)
+  start: [352, 594], s1: [344, 555], s2: [351, 503], ares: [369, 440], zone: [416, 428], s3: [429, 403],
 };
 
 /**
@@ -86,6 +88,18 @@ export class MarsMission implements Mission {
     await this.descend();
     if (this.disposed) return;
     await this.introCutscene();
+    if (this.disposed) return;
+    await playObjectiveIntro(this.app.ui, this.app.input, this.app.sfx, {
+      eyebrow: 'Mission 02 · Jezero Crater, Mars', title: 'Collect three rock samples', accent: '#ff8a3d', accent2: '#d23a2a',
+      objectives: [
+        { title: 'Collect igneous rock', sub: 'Follow the marker, stop beside the rock: the arm does the rest', icon: 'rock' },
+        { title: 'Collect hematite-bearing rock', sub: 'Iron-rich rock that formed in water', icon: 'rock' },
+        { title: 'Collect sedimentary rock', sub: 'Layered rock from Jezero’s ancient lake', icon: 'rock' },
+        { title: 'Stand by for Mission Control', sub: 'Something may come up out there', icon: 'signal', teaser: true },
+      ],
+      footer: this.app.mode === 'device' ? 'W A S D drive  ·  Mouse look  ·  E collect  ·  Follow the on-screen marker' : 'Left stick drive  ·  Action button collect  ·  Follow the on-screen marker',
+      target: () => this.hud?.querySelector<HTMLElement>('.obj-block') ?? null,
+    });
     if (this.disposed) return;
     this.startTime = performance.now();
     this.phase = 'explore';
