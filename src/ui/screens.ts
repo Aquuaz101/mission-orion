@@ -264,9 +264,9 @@ export function sourcesHtml() {
 export function creditsHtml() {
   return `
     <div class="credits">
-      <p><b>MISSION: ORION</b> was built in 24 hours for the NASA Space Apps Challenge.</p>
-      <h4>Team</h4>
-      <p class="muted">Team name and members go here.</p>
+      <p><b>MISSION: ORION</b>: a project submitted from Valencia National High School (STEM) for the NASA Space Apps Challenge 2026.</p>
+      <h4>Team · Ace of Cards</h4>
+      <p class="muted">Xandre Yosef S. Gaan<br>Niel B. Manaba<br>Cedric Light B. Perez<br>Kurt Zacchielle O. Ponce<br>Kenzi Cassielle O. Ponce</p>
       <h4>Data &amp; imagery</h4>
       <p class="muted">NASA, NASA/JPL-Caltech, University of Arizona (HiRISE), USGS Astrogeology Science Center, Space Science Institute, NASA Earth Observatory, NASA 3D Resources. Use of NASA data does not imply endorsement by NASA.</p>
       <h4>Built with</h4>

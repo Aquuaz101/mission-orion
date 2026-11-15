@@ -43,7 +43,7 @@ export function codMainMenu(sfx: Sfx, onAction: (a: CodMenuAction) => void) {
         <div class="cod-tag mono">Bring the NASA experience to your home</div>
       </div>
       <nav class="cod-nav">${groups}</nav>
-      <div class="cod-foot mono">NASA Space Apps Challenge project · Earth: NASA Blue Marble + MODIS clouds · Hubble model: NASA 3D Resources</div>
+      <div class="cod-foot mono">NASA Space Apps Challenge project · Earth: NASA VIIRS + Blue Marble · ISS model: NASA 3D Resources</div>
       <div class="cod-hint mono"><span class="kbd">↑</span><span class="kbd">↓</span> navigate <span class="kbd">ENTER</span> select</div>
     </section>`);
   const items = $$(el, '.cod-item');
