@@ -7,3 +7,9 @@ data-raw/
 .env.local
 .env
 qa-shots/
+
+# not part of the game (local agent tools, test screenshots)
+.agents/
+.claude/
+skills-lock.json
+f0*.png
