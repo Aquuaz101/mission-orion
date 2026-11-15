@@ -205,26 +205,118 @@ export function createAres7() {
   };
 }
 
-/** Sagging tow cable between two world points (rebuilt each frame from a reusable tube). */
+/**
+ * Physical tow cable: a verlet chain under Mars gravity (3.71 m/s²) pinned to both hitches. It sags under its own
+ * weight, goes slack and drags on the ground when ARES-7 rolls closer, and pulls straight when towing. Braided steel
+ * with high-visibility orange sleeves and a shackle at each end. Rebuilt every frame from the simulated points.
+ */
 export class TowCable {
-  readonly mesh: THREE.Mesh;
-  private curve = new THREE.QuadraticBezierCurve3(new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3());
-  extend = 0; // 0..1 animation (cable shooting out)
+  readonly mesh = new THREE.Group();
+  /** Cable length when deployed (m). */
+  length = 3.6;
+  extend = 0; // 0..1 animation (cable shooting out from the rover)
+  private readonly n = 22;
+  private pts: THREE.Vector3[] = [];
+  private prev: THREE.Vector3[] = [];
+  private tube: THREE.Mesh;
+  private hooks: THREE.Group[] = [];
+  private live = false;
 
   constructor() {
-    const mat = new THREE.MeshStandardMaterial({ color: 0xff7a2f, roughness: 0.5, metalness: 0.2, emissive: 0x3a1204 });
-    this.mesh = new THREE.Mesh(new THREE.TubeGeometry(this.curve, 24, 0.05, 8), mat);
-    this.mesh.castShadow = true;
+    const mat = new THREE.MeshStandardMaterial({ map: cableTexture(), color: 0xffffff, roughness: 0.42, metalness: 0.65 });
+    this.tube = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+    this.tube.castShadow = true;
+    this.tube.frustumCulled = false;
+    this.mesh.add(this.tube);
+    const red = new THREE.MeshStandardMaterial({ color: 0xd8401f, roughness: 0.45, metalness: 0.5 });
+    const steel = new THREE.MeshStandardMaterial({ color: 0xb9bec6, roughness: 0.3, metalness: 0.9 });
+    for (let i = 0; i < 2; i++) {
+      // bow shackle: a loop + a threaded pin, plus a short crimped ferrule where the cable enters
+      const h = new THREE.Group();
+      const bow = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.016, 10, 24, Math.PI * 1.4), red);
+      bow.rotation.z = -Math.PI * 0.2;
+      const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 10), steel);
+      pin.rotation.z = Math.PI / 2; pin.position.y = -0.05;
+      const ferrule = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.09, 12), steel);
+      ferrule.position.y = 0.11;
+      h.add(bow, pin, ferrule);
+      h.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+      this.hooks.push(h);
+      this.mesh.add(h);
+    }
     this.mesh.visible = false;
   }
 
-  update(a: THREE.Vector3, b: THREE.Vector3) {
-    const end = a.clone().lerp(b, this.extend);
-    const mid = a.clone().lerp(end, 0.5);
-    mid.y -= Math.max(0.05, 0.45 - a.distanceTo(end) * 0.04) * (0.4 + this.extend * 0.6);
-    this.curve.v0.copy(a); this.curve.v1.copy(mid); this.curve.v2.copy(end);
-    this.mesh.geometry.dispose();
-    this.mesh.geometry = new THREE.TubeGeometry(this.curve, 24, 0.05, 8);
-    this.mesh.visible = this.extend > 0.001;
+  private reset(a: THREE.Vector3, b: THREE.Vector3) {
+    this.pts = []; this.prev = [];
+    for (let i = 0; i < this.n; i++) { const p = a.clone().lerp(b, i / (this.n - 1)); this.pts.push(p); this.prev.push(p.clone()); }
+    this.live = true;
   }
+
+  /** a = rover hitch, b = ARES-7 hitch (world); ground(x, z) = terrain height. */
+  update(a: THREE.Vector3, b: THREE.Vector3, dt: number, ground?: (x: number, z: number) => number) {
+    if (this.extend <= 0.001) { this.mesh.visible = false; this.live = false; return; }
+    const end = a.clone().lerp(b, this.extend);
+    if (!this.live) this.reset(a, end);
+    const n = this.n, pts = this.pts, prev = this.prev;
+    // rest length: while shooting out, just longer than the gap; once deployed, the full cable (slack when close)
+    const total = this.extend < 1 ? a.distanceTo(end) * 1.03 + 0.05 : Math.max(this.length, a.distanceTo(b) * 1.01);
+    const seg = total / (n - 1);
+    const h = Math.min(dt, 1 / 30), g = 3.71 * h * h;
+    for (let i = 1; i < n - 1; i++) {
+      const p = pts[i], q = prev[i];
+      const vx = (p.x - q.x) * 0.985, vy = (p.y - q.y) * 0.985, vz = (p.z - q.z) * 0.985;
+      q.copy(p);
+      p.x += vx; p.y += vy - g; p.z += vz;
+    }
+    pts[0].copy(a); pts[n - 1].copy(end);
+    for (let it = 0; it < 14; it++) {
+      for (let i = 0; i < n - 1; i++) {
+        const p = pts[i], q = pts[i + 1];
+        const dx = q.x - p.x, dy = q.y - p.y, dz = q.z - p.z;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+        const k = (d - seg) / d;
+        const wa = i === 0 ? 0 : 0.5, wb = i + 1 === n - 1 ? 0 : 0.5;
+        const t = wa + wb || 1;
+        p.x += dx * k * (wa / t); p.y += dy * k * (wa / t); p.z += dz * k * (wa / t);
+        q.x -= dx * k * (wb / t); q.y -= dy * k * (wb / t); q.z -= dz * k * (wb / t);
+      }
+      if (ground) for (let i = 1; i < n - 1; i++) {
+        const p = pts[i], gy = ground(p.x, p.z) + 0.035;
+        if (p.y < gy) { p.y = gy; prev[i].x += (p.x - prev[i].x) * 0.4; prev[i].z += (p.z - prev[i].z) * 0.4; } // rests and drags on the regolith
+      }
+      pts[0].copy(a); pts[n - 1].copy(end);
+    }
+    // rebuild the tube through the simulated points
+    const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+    this.tube.geometry.dispose();
+    this.tube.geometry = new THREE.TubeGeometry(curve, 64, 0.04, 10);
+    (this.tube.material as THREE.MeshStandardMaterial).map!.repeat.set(total / 0.5, 1);
+    // shackles sit on the hitches, turned along the cable
+    const up = new THREE.Vector3(0, 1, 0);
+    this.hooks[0].position.copy(a);
+    this.hooks[0].quaternion.setFromUnitVectors(up, pts[1].clone().sub(a).normalize());
+    this.hooks[1].position.copy(end);
+    this.hooks[1].quaternion.setFromUnitVectors(up, pts[n - 2].clone().sub(end).normalize());
+    this.hooks[1].visible = this.extend >= 1;
+    this.mesh.visible = true;
+  }
+}
+
+/** Braided steel with an orange high-visibility sleeve every half metre (u runs along the cable). */
+function cableTexture() {
+  const c = document.createElement('canvas'); c.width = 128; c.height = 32;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#7d828a'; g.fillRect(0, 0, 128, 32);
+  g.strokeStyle = 'rgba(30,32,36,0.65)'; g.lineWidth = 2;
+  for (let x = -32; x < 160; x += 6) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + 18, 32); g.stroke(); }
+  g.strokeStyle = 'rgba(220,225,232,0.35)'; g.lineWidth = 1;
+  for (let x = -32; x < 160; x += 6) { g.beginPath(); g.moveTo(x + 2, 0); g.lineTo(x + 20, 32); g.stroke(); }
+  g.fillStyle = '#ff6a1f'; g.fillRect(0, 0, 22, 32);
+  g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(0, 4, 22, 3);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  return t;
 }

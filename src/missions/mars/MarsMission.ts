@@ -3,7 +3,7 @@ import './mars.css';
 import { playObjectiveIntro } from '../../ui/objectiveIntro';
 import type { App } from '../../app/App';
 import type { Mission, MissionExit } from '../types';
-import { MarsStage, MAX_SPEED } from './MarsStage';
+import { MarsStage, MAX_SPEED, TOW_LENGTH } from './MarsStage';
 import { SAMPLES, SAMPLE_TUBE, BRIEF_SPECS, briefingLines, LINES, type SampleKind } from './script';
 import { html, $, wait, escapeHtml } from '../../ui/dom';
 
@@ -11,7 +11,7 @@ type Phase = 'intro' | 'explore' | 'emergency-find' | 'emergency-tow' | 'recover
 
 interface Poi { id: string; pos: THREE.Vector3; kind: 'sample' | 'ares' | 'zone' | 'start'; sample?: SampleKind; label: string }
 
-const EMERGENCY_SECONDS = 180;
+const EMERGENCY_SECONDS = 165; // recovery window (was 180; 15 s shorter for the demo, tested winnable with ARES-7 at its original site)
 const INTERACT_RANGE = 6;
 const ZONE_RADIUS = 11;
 const JEZERO = { lat: 18.38, lon: 77.58 };
@@ -21,8 +21,8 @@ const JEZERO = { lat: 18.38, lon: 77.58 };
  * Start in a shadowed ravine → channel → basin pit (ARES-7) → sunlit mesa (recovery) → layered outcrop.
  */
 const GRID: Record<string, [number, number]> = {
-  // demo-length route (~240 m): each objective pulled halfway toward the start along the original path (was ~480 m)
-  start: [352, 594], s1: [344, 555], s2: [351, 503], ares: [369, 440], zone: [416, 428], s3: [429, 403],
+  // demo-length route: samples 1-2 pulled halfway toward the start; the emergency leg (ARES-7, ridge, sample 3) is the original
+  start: [352, 594], s1: [344, 555], s2: [351, 503], ares: [385, 285], zone: [480, 262], s3: [505, 212],
 };
 
 /**
@@ -407,7 +407,7 @@ export class MarsMission implements Mission {
     const a = st.ares.group.position.clone();
     const zone = this.pois.get('zone')!.pos;
     const dir = new THREE.Vector3(zone.x - a.x, 0, zone.z - a.z).normalize();
-    const goal = a.clone().addScaledVector(dir, 2.4 + 0.8 + 1.7);
+    const goal = a.clone().addScaledVector(dir, TOW_LENGTH + 0.8 + 1.7);
     const yaw = Math.atan2(dir.x, dir.z);
     st.setOrbit(a.clone().addScaledVector(dir, 2.5), 9, 3, 0.18);
     this.showProgress('Positioning for tow');
@@ -714,7 +714,7 @@ export class MarsMission implements Mission {
 
         <div class="mh-top">
           <div class="compass mono"><div class="compass-strip"></div><b class="compass-needle"></b></div>
-          <div class="timer mono" hidden><span>Recovery window</span><b>3:00</b></div>
+          <div class="timer mono" hidden><span>Recovery window</span><b>2:45</b></div>
           <div class="alert-banner mono"><b>⚠ Priority transmission</b><span>Dust storm · scout rover ARES-7 without power</span><em>Simulated incident</em></div>
         </div>
 

@@ -30,7 +30,8 @@ const WHEEL_RADIUS = 0.265;
 const BELLY = [[0, 0], [0, 0.9], [0, -0.9], [-0.6, 0], [0.6, 0]] as const;
 const BELLY_CLEAR = 0.62;
 const REAR_HITCH = new THREE.Vector3(0, 0.6, -1.7);
-const TOW_LENGTH = 2.4;
+/** Tow cable length (m): ARES-7 is pulled when the cable is taut, and can roll closer on slack. */
+export const TOW_LENGTH = 3.6;
 /** Height of the arm turret's centre above a rock while drilling (m). */
 const HOVER = 0.36;
 
@@ -1006,11 +1007,15 @@ export class MarsStage implements Stage {
     if (this.towing) {
       const d = new THREE.Vector3(g.position.x - hitch.x, 0, g.position.z - hitch.z);
       if (d.lengthSq() < 1e-6) d.set(-Math.sin(this.roverYaw), 0, -Math.cos(this.roverYaw));
+      const dist = d.length();
       d.normalize();
+      // a cable, not a bar: it only pulls when taut (reversing leaves ARES-7 where it is and the cable goes slack)
       const reach = TOW_LENGTH + this.ares.hitchLocal.z;
-      g.position.x = hitch.x + d.x * reach;
-      g.position.z = hitch.z + d.z * reach;
-      g.rotation.y = Math.atan2(-d.x, -d.z);
+      if (dist > reach) {
+        g.position.x = hitch.x + d.x * reach;
+        g.position.z = hitch.z + d.z * reach;
+        g.rotation.y = Math.atan2(-d.x, -d.z);
+      }
       const n = this.terrain.normalAt(g.position.x, g.position.z);
       g.position.y += (this.terrain.heightAt(g.position.x, g.position.z) - g.position.y) * Math.min(1, dt * 10);
       this.ares.body.rotation.x += (Math.atan2(n.z * Math.cos(g.rotation.y) + n.x * Math.sin(g.rotation.y), n.y) - this.ares.body.rotation.x) * Math.min(1, dt * 6);
@@ -1020,7 +1025,8 @@ export class MarsStage implements Stage {
       if (Math.abs(moved) < 2) for (const w of this.ares.wheels) w.rotation.x += moved / 0.24;
     }
     this.aresLast.copy(g.position);
-    if (this.cable.extend > 0) this.cable.update(hitch, g.localToWorld(this.ares.hitchLocal.clone()));
+    this.cable.length = TOW_LENGTH;
+    this.cable.update(hitch, g.localToWorld(this.ares.hitchLocal.clone()), dt, (x, z) => this.terrain.heightAt(x, z));
   }
 
   // ─────────────────────────────────────────── frame
