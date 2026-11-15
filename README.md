@@ -2,6 +2,10 @@
 
 *Bring the NASA experience to your home.* A NASA Space Apps Challenge project: a browser-based 3D mission operations simulator. Play it with keyboard and mouse, or turn your smartphone into the mission controller.
 
+### ▶ Play it in your browser: https://aquuaz101.github.io/mission-orion/
+
+No install needed. Use Chrome or Edge on a computer. To use your phone as the controller, choose **Phone controller** in the game and scan the QR code (both devices need internet). The first load downloads about 100 MB of NASA models and imagery.
+
 ## Run it
 
 Requires [Node.js](https://nodejs.org) 20+.

@@ -188,7 +188,7 @@ export class MenuStage implements Stage {
 
     // NASA's high-detail ISS (40 MB): streamed after the menu is up, shared with Mission 03 (one download)
     // full HD geometry, baked to one mesh per material (~43 draw calls): the menu holds 60 fps with it
-    void assets.loadModel('issHd', '/models/iss_hd.glb').then((g) => this.placeStation(g.scene)).catch(() => {});
+    void assets.loadModel('issHd', import.meta.env.BASE_URL + 'models/iss_hd.glb').then((g) => this.placeStation(g.scene)).catch(() => {});
 
     // ── Post
     this.composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }));

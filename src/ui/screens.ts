@@ -1,3 +1,4 @@
+import { PEER_LINK } from '../shared/peerSocket';
 import QRCode from 'qrcode';
 import { $, $$, html, escapeHtml } from './dom';
 import type { Link } from '../core/Link';
@@ -142,7 +143,9 @@ export function pairingScreen(link: Link, sfx: Sfx, onDone: (mode: 'phone' | 'de
             <button class="btn primary continue" disabled>Continue</button>
             <button class="btn ghost device">Use this device instead</button>
           </div>
-          <p class="pair-help">Not connecting? Phones on guest/venue Wi-Fi often can't see other devices. Turn on a <b>mobile hotspot</b>, join both devices to it, and allow Node.js through the Windows firewall if asked.</p>
+          <p class="pair-help">${PEER_LINK
+            ? 'Both devices need internet. Not connecting? Put the phone and this computer on the <b>same Wi-Fi</b> or a <b>mobile hotspot</b>, then scan again.'
+            : 'Not connecting? Phones on guest/venue Wi-Fi often can\'t see other devices. Turn on a <b>mobile hotspot</b>, join both devices to it, and allow Node.js through the Windows firewall if asked.'}</p>
         </div>
       </div>
       <button class="btn ghost back">← Back</button>

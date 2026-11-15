@@ -13,3 +13,4 @@ qa-shots/
 .claude/
 skills-lock.json
 f0*.png
+dist-pages/

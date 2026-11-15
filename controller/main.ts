@@ -5,6 +5,7 @@ import '@fontsource/jetbrains-mono/400.css';
 import '../src/styles/base.css';
 import './controller.css';
 import { LINK_PATH, type ControllerLayout, type CtrlMsg, type HostMsg, type HudState, type MissionEntry, type RelayMsg } from '../src/shared/protocol';
+import { PEER_LINK, PeerControllerSocket } from '../src/shared/peerSocket';
 
 /* ────────────────────────────────────────────────────────────────
    MISSION: ORION phone controller. Connects to the PC's local relay
@@ -55,7 +56,9 @@ function connect() {
   if (!/^\d{4}$/.test(pin)) return showPinEntry();
   localStorage.setItem('orion.ctrl.pin', pin);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const sock = new WebSocket(`${proto}://${location.host}${LINK_PATH}?role=controller&pin=${pin}`);
+  const sock = PEER_LINK
+    ? (new PeerControllerSocket(pin) as unknown as WebSocket)
+    : new WebSocket(`${proto}://${location.host}${LINK_PATH}?role=controller&pin=${pin}`);
   ws = sock;
   setStatus('connecting', 'Connecting…');
   sock.onmessage = (ev) => {

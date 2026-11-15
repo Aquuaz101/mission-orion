@@ -29,7 +29,7 @@ export const SAMPLES: Record<SampleKind, SampleInfo> = {
     kind: 'igneous',
     name: 'Igneous rock (basaltic)',
     tag: 'Sample 1',
-    image: '/images/igneous_sol190_navcam.jpg',
+    image: import.meta.env.BASE_URL + 'images/igneous_sol190_navcam.jpg',
     imageCaption: 'Real image · Perseverance Navcam, Sol 190 (1 Sep 2021): igneous rocks on the floor of Jezero Crater, near the rock “Rochette”. NASA/JPL-Caltech',
     facts: ['Forms when magma or lava cools and hardens', 'Much of Mars’s surface is volcanic basalt', 'Perseverance found Jezero’s crater floor is made of igneous rock'],
     collected: [
@@ -41,7 +41,7 @@ export const SAMPLES: Record<SampleKind, SampleInfo> = {
     kind: 'hematite',
     name: 'Hematite-bearing rock',
     tag: 'Sample 2',
-    image: '/images/hematite_PIA05634.jpg',
+    image: import.meta.env.BASE_URL + 'images/hematite_PIA05634.jpg',
     imageCaption: 'Real image · NASA Opportunity rover, “Berry Bowl”, Meridiani Planum, 2004 (PIA05634): hematite spherules nicknamed “blueberries”. NASA/JPL-Caltech/Cornell',
     facts: ['Hematite is an iron oxide mineral', 'Opportunity’s “blueberries” are concretions that grew in wet sediment', 'Strong evidence that liquid water once soaked the ground'],
     collected: [
@@ -53,7 +53,7 @@ export const SAMPLES: Record<SampleKind, SampleInfo> = {
     kind: 'sedimentary',
     name: 'Sedimentary rock (layered)',
     tag: 'Sample 3',
-    image: '/images/sedimentary_PIA24924.jpg',
+    image: import.meta.env.BASE_URL + 'images/sedimentary_PIA24924.jpg',
     imageCaption: 'Real image · Perseverance Mastcam-Z, Jezero delta, 4 Aug 2022 (PIA24924): the sampling area of Wildcat Ridge and Skinner Ridge. NASA/JPL-Caltech/ASU/MSSS',
     facts: ['Built from layers of sediment settled by water', 'Wildcat Ridge is a mudstone that likely formed as an ancient lake evaporated', 'Fine-grained lake rocks are prime places to search for signs of ancient life'],
     collected: [
@@ -65,7 +65,7 @@ export const SAMPLES: Record<SampleKind, SampleInfo> = {
 };
 
 export const SAMPLE_TUBE = {
-  image: '/images/sample_tube_sol190_mastcamz.jpg',
+  image: import.meta.env.BASE_URL + 'images/sample_tube_sol190_mastcamz.jpg',
   caption: 'Real image · Perseverance Mastcam-Z, Sol 190 (1 Sep 2021): the rover’s sample tube holding its first rock core, from “Rochette”. NASA/JPL-Caltech/ASU/MSSS',
 };
 

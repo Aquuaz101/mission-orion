@@ -19,30 +19,30 @@ export interface AssetJob {
 }
 
 export const ASSET_JOBS: AssetJob[] = [
-  { key: 'stars', url: '/textures/stars.jpg', kind: 'texture', kb: 1700, label: 'Star catalogue · NASA Tycho star map', required: true, srgb: true },
-  { key: 'earthDay', url: '/textures/earth_day.jpg', kind: 'texture', kb: 230, label: 'Earth imagery · NASA Blue Marble', srgb: true },
-  { key: 'earthNight', url: '/textures/earth_night.jpg', kind: 'texture', kb: 440, label: 'Earth at night · NASA Black Marble', srgb: true },
-  { key: 'jupiter', url: '/textures/jupiter.jpg', kind: 'texture', kb: 735, label: 'Jupiter global map · NASA/JPL Cassini', srgb: true },
-  { key: 'io', url: '/textures/io.jpg', kind: 'texture', kb: 205, label: 'Io surface map · NASA/USGS', srgb: true },
-  { key: 'europa', url: '/textures/europa.jpg', kind: 'texture', kb: 226, label: 'Europa surface map · NASA/USGS', srgb: true },
-  { key: 'ganymede', url: '/textures/ganymede.jpg', kind: 'texture', kb: 305, label: 'Ganymede surface map · NASA/USGS', srgb: true },
-  { key: 'callisto', url: '/textures/callisto.jpg', kind: 'texture', kb: 373, label: 'Callisto surface map · NASA/USGS', srgb: true },
-  { key: 'mars', url: '/textures/mars.jpg', kind: 'texture', kb: 294, label: 'Mars global map · NASA/USGS', srgb: true },
-  { key: 'jezeroHeight', url: '/data/jezero_height.bin', kind: 'binary', kb: 1150, label: 'Jezero crater terrain · HiRISE elevation model' },
-  { key: 'jezeroMeta', url: '/data/jezero.json', kind: 'json', kb: 1, label: 'Jezero crater terrain · metadata' },
-  { key: 'jezeroOrtho', url: '/data/jezero_ortho.jpg', kind: 'texture', kb: 345, label: 'Jezero crater imagery · MRO HiRISE', srgb: true },
-  { key: 'soilDiff', url: '/textures/pbr/soil_diff.jpg', kind: 'texture', kb: 690, label: 'Surface detail · soil (Poly Haven CC0)', srgb: true },
-  { key: 'soilNor', url: '/textures/pbr/soil_nor.jpg', kind: 'texture', kb: 1888, label: 'Surface detail · soil normals' },
-  { key: 'soilArm', url: '/textures/pbr/soil_arm.jpg', kind: 'texture', kb: 217, label: 'Surface detail · soil roughness' },
-  { key: 'rockDiff', url: '/textures/pbr/rock_diff.jpg', kind: 'texture', kb: 300, label: 'Surface detail · rock (Poly Haven CC0)', srgb: true },
-  { key: 'rockNor', url: '/textures/pbr/rock_nor.jpg', kind: 'texture', kb: 202, label: 'Surface detail · rock normals' },
-  { key: 'rockArm', url: '/textures/pbr/rock_arm.jpg', kind: 'texture', kb: 21, label: 'Surface detail · rock roughness' },
-  { key: 'rover', url: '/models/perseverance.glb', kind: 'gltf', kb: 4870, label: 'Rover model · NASA/JPL-Caltech Perseverance' },
-  { key: 'hubble', url: '/models/hubble.glb', kind: 'gltf', kb: 1655, label: 'Hubble Space Telescope model · NASA' },
-  { key: 'earthHd', url: '/textures/earth_hd.jpg', kind: 'texture', kb: 1160, label: 'Earth from orbit · NASA Blue Marble Next Generation', srgb: true },
-  { key: 'earthDetail', url: '/textures/earth_detail.jpg', kind: 'texture', kb: 6400, label: 'Gulf of Mexico at 500 m/px · NASA VIIRS (NOAA-20)', srgb: true },
-  { key: 'earthNightDetail', url: '/textures/earth_night_detail.jpg', kind: 'texture', kb: 710, label: 'City lights at 1 km/px · NASA Black Marble', srgb: true },
-  { key: 'earthClouds', url: '/textures/earth_clouds.jpg', kind: 'texture', kb: 580, label: 'Cloud cover (baked)' },
+  { key: 'stars', url: import.meta.env.BASE_URL + 'textures/stars.jpg', kind: 'texture', kb: 1700, label: 'Star catalogue · NASA Tycho star map', required: true, srgb: true },
+  { key: 'earthDay', url: import.meta.env.BASE_URL + 'textures/earth_day.jpg', kind: 'texture', kb: 230, label: 'Earth imagery · NASA Blue Marble', srgb: true },
+  { key: 'earthNight', url: import.meta.env.BASE_URL + 'textures/earth_night.jpg', kind: 'texture', kb: 440, label: 'Earth at night · NASA Black Marble', srgb: true },
+  { key: 'jupiter', url: import.meta.env.BASE_URL + 'textures/jupiter.jpg', kind: 'texture', kb: 735, label: 'Jupiter global map · NASA/JPL Cassini', srgb: true },
+  { key: 'io', url: import.meta.env.BASE_URL + 'textures/io.jpg', kind: 'texture', kb: 205, label: 'Io surface map · NASA/USGS', srgb: true },
+  { key: 'europa', url: import.meta.env.BASE_URL + 'textures/europa.jpg', kind: 'texture', kb: 226, label: 'Europa surface map · NASA/USGS', srgb: true },
+  { key: 'ganymede', url: import.meta.env.BASE_URL + 'textures/ganymede.jpg', kind: 'texture', kb: 305, label: 'Ganymede surface map · NASA/USGS', srgb: true },
+  { key: 'callisto', url: import.meta.env.BASE_URL + 'textures/callisto.jpg', kind: 'texture', kb: 373, label: 'Callisto surface map · NASA/USGS', srgb: true },
+  { key: 'mars', url: import.meta.env.BASE_URL + 'textures/mars.jpg', kind: 'texture', kb: 294, label: 'Mars global map · NASA/USGS', srgb: true },
+  { key: 'jezeroHeight', url: import.meta.env.BASE_URL + 'data/jezero_height.bin', kind: 'binary', kb: 1150, label: 'Jezero crater terrain · HiRISE elevation model' },
+  { key: 'jezeroMeta', url: import.meta.env.BASE_URL + 'data/jezero.json', kind: 'json', kb: 1, label: 'Jezero crater terrain · metadata' },
+  { key: 'jezeroOrtho', url: import.meta.env.BASE_URL + 'data/jezero_ortho.jpg', kind: 'texture', kb: 345, label: 'Jezero crater imagery · MRO HiRISE', srgb: true },
+  { key: 'soilDiff', url: import.meta.env.BASE_URL + 'textures/pbr/soil_diff.jpg', kind: 'texture', kb: 690, label: 'Surface detail · soil (Poly Haven CC0)', srgb: true },
+  { key: 'soilNor', url: import.meta.env.BASE_URL + 'textures/pbr/soil_nor.jpg', kind: 'texture', kb: 1888, label: 'Surface detail · soil normals' },
+  { key: 'soilArm', url: import.meta.env.BASE_URL + 'textures/pbr/soil_arm.jpg', kind: 'texture', kb: 217, label: 'Surface detail · soil roughness' },
+  { key: 'rockDiff', url: import.meta.env.BASE_URL + 'textures/pbr/rock_diff.jpg', kind: 'texture', kb: 300, label: 'Surface detail · rock (Poly Haven CC0)', srgb: true },
+  { key: 'rockNor', url: import.meta.env.BASE_URL + 'textures/pbr/rock_nor.jpg', kind: 'texture', kb: 202, label: 'Surface detail · rock normals' },
+  { key: 'rockArm', url: import.meta.env.BASE_URL + 'textures/pbr/rock_arm.jpg', kind: 'texture', kb: 21, label: 'Surface detail · rock roughness' },
+  { key: 'rover', url: import.meta.env.BASE_URL + 'models/perseverance.glb', kind: 'gltf', kb: 4870, label: 'Rover model · NASA/JPL-Caltech Perseverance' },
+  { key: 'hubble', url: import.meta.env.BASE_URL + 'models/hubble.glb', kind: 'gltf', kb: 1655, label: 'Hubble Space Telescope model · NASA' },
+  { key: 'earthHd', url: import.meta.env.BASE_URL + 'textures/earth_hd.jpg', kind: 'texture', kb: 1160, label: 'Earth from orbit · NASA Blue Marble Next Generation', srgb: true },
+  { key: 'earthDetail', url: import.meta.env.BASE_URL + 'textures/earth_detail.jpg', kind: 'texture', kb: 6400, label: 'Gulf of Mexico at 500 m/px · NASA VIIRS (NOAA-20)', srgb: true },
+  { key: 'earthNightDetail', url: import.meta.env.BASE_URL + 'textures/earth_night_detail.jpg', kind: 'texture', kb: 710, label: 'City lights at 1 km/px · NASA Black Marble', srgb: true },
+  { key: 'earthClouds', url: import.meta.env.BASE_URL + 'textures/earth_clouds.jpg', kind: 'texture', kb: 580, label: 'Cloud cover (baked)' },
 ];
 
 export type ProgressFn = (fraction: number, label: string) => void;
@@ -96,7 +96,7 @@ export class Assets {
   private loader: GLTFLoader | null = null;
   private gltfLoader() {
     // Draco (NASA rover/Hubble) + meshopt (packed ISS) decoders, both bundled for offline use.
-    return (this.loader ??= new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath('/draco/')).setMeshoptDecoder(MeshoptDecoder));
+    return (this.loader ??= new GLTFLoader().setDRACOLoader(new DRACOLoader().setDecoderPath(import.meta.env.BASE_URL + 'draco/')).setMeshoptDecoder(MeshoptDecoder));
   }
 
   /** Load a large model on demand (not at boot). Cached. */

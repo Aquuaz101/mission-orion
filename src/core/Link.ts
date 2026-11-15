@@ -1,4 +1,5 @@
 import { LINK_PATH, type CtrlMsg, type HostMsg, type HudState, type RelayMsg } from '../shared/protocol';
+import { PEER_LINK, PeerHostSocket } from '../shared/peerSocket';
 
 export type LinkStatus = 'connecting' | 'online' | 'offline';
 
@@ -33,6 +34,8 @@ export class Link {
   /** URL the phone should open (encoded in the QR code). */
   get controllerUrl(): string | null {
     if (!this.pin) return null;
+    // Hosted build: the phone opens the same website, anywhere with internet.
+    if (PEER_LINK) return `${location.origin}${import.meta.env.BASE_URL}controller/?pin=${this.pin}`;
     const host = location.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1';
     const ip = isLocal ? this.addresses[0] : host;
@@ -83,7 +86,9 @@ export class Link {
     if (this.pin) q.set('pin', this.pin);
     let ws: WebSocket;
     try {
-      ws = new WebSocket(`${proto}://${location.host}${LINK_PATH}?${q}`);
+      ws = PEER_LINK
+        ? (new PeerHostSocket(this.pin) as unknown as WebSocket)
+        : new WebSocket(`${proto}://${location.host}${LINK_PATH}?${q}`);
     } catch {
       this.scheduleReconnect();
       return;

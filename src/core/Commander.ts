@@ -40,10 +40,10 @@ export class Commander {
       pick();
       speechSynthesis.addEventListener('voiceschanged', pick);
     }
-    void fetch('/audio/ace/manifest.json')
+    void fetch(import.meta.env.BASE_URL + 'audio/ace/manifest.json')
       .then((r) => (r.ok ? r.json() : null))
       .then((m: { lines?: Record<string, string> } | null) => {
-        for (const [id, file] of Object.entries(m?.lines ?? {})) this.files.set(id, `/audio/ace/${file}`);
+        for (const [id, file] of Object.entries(m?.lines ?? {})) this.files.set(id, `${import.meta.env.BASE_URL}audio/ace/${file}`);
       })
       .catch(() => { /* no generated voice: browser speech fallback */ });
   }

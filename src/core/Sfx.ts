@@ -142,13 +142,13 @@ export class Sfx {
   // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ generated samples (optional)
   private async loadSamples() {
     try {
-      const res = await fetch('/audio/sfx/manifest.json');
+      const res = await fetch(import.meta.env.BASE_URL + 'audio/sfx/manifest.json');
       if (!res.ok) return;
       const list = (await res.json()) as { files?: Record<string, string> };
       const files = list.files ?? {};
       await Promise.all(Object.entries(files).map(async ([name, file]) => {
         try {
-          const buf = await (await fetch(`/audio/sfx/${file}`)).arrayBuffer();
+          const buf = await (await fetch(`${import.meta.env.BASE_URL}audio/sfx/${file}`)).arrayBuffer();
           this.samples.set(name, await this.ctx!.decodeAudioData(buf));
           this.sampleNames.add(name);
         } catch { /* keep synth fallback */ }
@@ -762,9 +762,9 @@ class MusicDirector {
     send.gain.value = 0.9;
     this.synthOut.connect(send).connect(verb);
     // CC0 score tracks (public/audio/music), streamed through <audio> so long tracks are not decoded into memory.
-    this.ready = fetch('/audio/music/manifest.json')
+    this.ready = fetch(import.meta.env.BASE_URL + 'audio/music/manifest.json')
       .then((r) => (r.ok ? r.json() : null))
-      .then((m: { files?: Record<string, string> } | null) => { for (const [k, f] of Object.entries(m?.files ?? {})) this.tracks.set(k, '/audio/music/' + f); })
+      .then((m: { files?: Record<string, string> } | null) => { for (const [k, f] of Object.entries(m?.files ?? {})) this.tracks.set(k, import.meta.env.BASE_URL + 'audio/music/' + f); })
       .catch(() => undefined);
   }
   private synthOut: GainNode;

@@ -141,7 +141,7 @@ export class ISSMission implements Mission {
     void this.say(briefingLines(app.mode), true);
     if (!hd) {
       const tag = $(el, '.brief-load');
-      app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (tag.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`))
+      app.assets.loadModel('issHd', import.meta.env.BASE_URL + 'models/iss_hd.glb', (f) => (tag.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`))
         .then((g) => {
           tag.textContent = 'STATION MODEL · NASA ISS (IGOAL) · READY';
           if (briefingOpen && !this.disposed) app.space.showModel(this.showcaseStation() ?? g.scene.clone(true), 5.2);
@@ -180,11 +180,11 @@ export class ISSMission implements Mission {
     await line('EMU · EXTRAVEHICULAR MOBILITY UNIT');
     // NASA's high-detail ISS (packed, ~40 MB) loads here the first time, then stays cached
     const ld = await line('STATION MODEL · NASA ISS (IGOAL) · 0%', 100);
-    const gltf = await app.assets.loadModel('issHd', '/models/iss_hd.glb', (f) => (ld.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`)).catch(() => null);
+    const gltf = await app.assets.loadModel('issHd', import.meta.env.BASE_URL + 'models/iss_hd.glb', (f) => (ld.textContent = `STATION MODEL · NASA ISS (IGOAL) · ${Math.round(f * 100)}%`)).catch(() => null);
     ld.textContent = gltf ? 'STATION MODEL · NASA ISS (IGOAL) · READY' : 'STATION MODEL · UNAVAILABLE';
-    await app.assets.loadModel('issFar', '/models/iss_far.glb').catch(() => null); // simplified twin for distant clusters
-    await app.assets.loadModel('emuArm', '/models/emu_arm.glb').catch(() => null); // EMU gloves (Blender, skinned)
-    await app.assets.loadModel('emuSuit', '/models/emu_suit.glb').catch(() => null); // full EMU for cutscenes (Blender)
+    await app.assets.loadModel('issFar', import.meta.env.BASE_URL + 'models/iss_far.glb').catch(() => null); // simplified twin for distant clusters
+    await app.assets.loadModel('emuArm', import.meta.env.BASE_URL + 'models/emu_arm.glb').catch(() => null); // EMU gloves (Blender, skinned)
+    await app.assets.loadModel('emuSuit', import.meta.env.BASE_URL + 'models/emu_suit.glb').catch(() => null); // full EMU for cutscenes (Blender)
     this.alive();
     this.stage = new ISSStage(app.assets, app.engine.renderer, app.quality, gltf);
     const st = this.stage;
